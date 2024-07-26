@@ -2,7 +2,7 @@
 #include <chrono>
 #include <string>
 #include <iostream>
-namespace BRT 
+namespace CRT 
 {
 	class Timestep
 	{
