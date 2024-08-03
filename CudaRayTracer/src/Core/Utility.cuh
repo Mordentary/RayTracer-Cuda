@@ -4,19 +4,15 @@
 
 namespace CRT
 {
-
 	//Constants
 	__device__ static constexpr float INFINITY_CRT = std::numeric_limits<float>::infinity();
-	__device__ static constexpr float PI = 3.1415926535897932385;
+	__device__ static constexpr float PI = 3.1415926535897932385f;
 
 	class Utility
 	{
 	public:
 
-
-
 		//VectorFunc
-
 
 		//RandomFunc
 		__device__ static float randomFloat(float min, float max, curandState* local_rand_state)
@@ -27,6 +23,11 @@ namespace CRT
 		__device__ static float randomFloat(curandState* local_rand_state)
 		{
 			return curand_uniform(local_rand_state);
+		}
+		__device__ static int randomInt(int min, int max, curandState* local_rand_state)
+		{
+			float random_float = randomFloat(static_cast<float>(min), static_cast<float>(max) + 1.0f, local_rand_state);
+			return static_cast<int>(random_float);
 		}
 
 		__device__ static Vec3 randomVector(curandState* local_rand_state)
@@ -105,6 +106,4 @@ namespace CRT
 				return -on_unit_sphere;
 		}
 	};
-
-
 }

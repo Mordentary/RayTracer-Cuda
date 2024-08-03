@@ -37,7 +37,7 @@ namespace CRT
 			);
 		}
 
-		__host__ __device__  void updateCamera(float deltaTime, int windowWidth, int windowHeight, float mouseX, float mouseY, bool mousePressed)
+		__host__ void updateCamera(float deltaTime, int windowWidth, int windowHeight, float mouseX, float mouseY, bool mousePressed)
 		{
 			updateRotation(deltaTime, windowWidth, windowHeight, mouseX, mouseY, mousePressed);
 			updatePosition(deltaTime);
@@ -46,7 +46,7 @@ namespace CRT
 			if (m_CameraRotates || m_CameraMoves)
 				m_SamplesPerPixel = 2;
 			else
-				m_SamplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL;
+				m_SamplesPerPixel = 2;
 			
 
 			m_PixelSampleScale = 1.f / m_SamplesPerPixel;

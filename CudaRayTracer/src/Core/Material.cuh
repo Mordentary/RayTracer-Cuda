@@ -5,10 +5,10 @@
 
 namespace CRT
 {
-	class Material
-	{
+	class Material {
 	public:
 		__device__ virtual bool Scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const = 0;
+		__device__ virtual ~Material() {};
 	};
 
 	class Lambertian : public Material
@@ -54,10 +54,10 @@ namespace CRT
 		float m_Roughness;
 	};
 
-	class Dialectric : public Material
+	class Dielectric : public Material
 	{
 	public:
-		__device__ Dialectric(float ior) : m_IndexOfRefraction(ior)
+		__device__ Dielectric(float ior) : m_IndexOfRefraction(ior)
 		{
 		}
 		__device__ virtual bool Scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const override
@@ -69,14 +69,13 @@ namespace CRT
 			double cos_theta = fminf(dot(-unitDirection, rec.Normal), 1.0);
 			double sin_theta = sqrt(1.0 - cos_theta * cos_theta);
 
-
 			bool cannot_refract = ri * sin_theta > 1.0;
 			Vec3 dirR_out;
 			//if (cannot_refract || schlicksReflectance(cos_theta, ri) > Utility::randomFloat(rand_state))
 			if (cannot_refract || schlicksReflectance(cos_theta, ri) > Utility::randomFloat(rand_state))
-					dirR_out = reflect(unitDirection, rec.Normal);
-				else
-					dirR_out = refract(unitDirection, rec.Normal, ri);
+				dirR_out = reflect(unitDirection, rec.Normal);
+			else
+				dirR_out = refract(unitDirection, rec.Normal, ri);
 
 			scattered = Ray(rec.Point, dirR_out);
 			return true;

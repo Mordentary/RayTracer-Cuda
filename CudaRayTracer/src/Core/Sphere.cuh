@@ -8,9 +8,11 @@ namespace CRT
 	public:
 		__device__  Sphere() = default;
 
-		__device__ Sphere(const Vec3& center, float rad, Material* mat)
-			: m_Center(center), m_Radius(rad), m_RadiusSquared(rad* rad), m_Material(mat)
+		__device__ Sphere(const Vec3& center, float rad, int matIndex)
+			: m_Center(center), m_Radius(rad), m_RadSquared(rad* rad), m_MaterialIndex(matIndex)
 		{
+			auto rvec = Vec3(rad, rad, rad);
+			m_BoundingBox = AABB(center - rvec, center + rvec);
 		}
 
 		__device__ virtual bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override
@@ -18,7 +20,7 @@ namespace CRT
 			Vec3 oc = r.getOrigin() - m_Center;
 			float a = dot(r.getDirection(), r.getDirection());
 			float half_b = dot(oc, r.getDirection());
-			float c = dot(oc, oc) - m_RadiusSquared;
+			float c = dot(oc, oc) - m_RadSquared;
 			float discriminant = half_b * half_b - a * c;
 
 			if (discriminant < 0)
@@ -37,18 +39,16 @@ namespace CRT
 
 			rec.IntersectionTime = root;
 			rec.Point = r.pointAtDistance(rec.IntersectionTime);
-			rec.MaterialPtr = m_Material;
+			rec.MaterialIndex = m_MaterialIndex;
 			Vec3 outward_normal = (rec.Point - m_Center) / m_Radius;
 			rec.setFaceNormal(r, outward_normal);
-
 
 			return true;
 		}
 
 	private:
 		Vec3 m_Center;
-		float m_Radius, m_RadiusSquared;
-		Material* m_Material;
-
+		float m_Radius, m_RadSquared;
+		 int m_MaterialIndex;
 	};
 }
