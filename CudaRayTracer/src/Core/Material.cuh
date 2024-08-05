@@ -21,7 +21,7 @@ namespace CRT
 		{
 			Vec3 scatter_direction = rec.Normal + Utility::randomUnitVector(rand_state);
 
-			if (scatter_direction.near_zero())
+			if (scatter_direction.nearZero())
 				scatter_direction = rec.Normal;
 
 			// Update the ray for the next iteration
@@ -42,11 +42,11 @@ namespace CRT
 		}
 		__device__ virtual bool Scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const override
 		{
-			Vec3 reflected = reflect(rayIn.getDirection(), rec.Normal);
+			Vec3 reflected = reflect(rayIn.direction(), rec.Normal);
 			reflected = unitVector(reflected) + (m_Roughness * Utility::randomUnitVector(rand_state));
 			scattered = Ray(rec.Point, reflected);
 			attenuation = m_Albedo;
-			return (dot(scattered.getDirection(), rec.Normal) > 0);
+			return (dot(scattered.direction(), rec.Normal) > 0);
 		}
 
 	private:
@@ -65,7 +65,7 @@ namespace CRT
 			attenuation = Color(1.0, 1.0, 1.0);
 			float ri = rec.IsNormalOutward ? (1.0f / m_IndexOfRefraction) : m_IndexOfRefraction;
 
-			Vec3 unitDirection = unitVector(rayIn.getDirection());
+			Vec3 unitDirection = unitVector(rayIn.direction());
 			double cos_theta = fminf(dot(-unitDirection, rec.Normal), 1.0);
 			double sin_theta = sqrt(1.0 - cos_theta * cos_theta);
 

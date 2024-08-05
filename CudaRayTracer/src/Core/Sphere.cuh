@@ -17,9 +17,9 @@ namespace CRT
 
 		__device__ virtual bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override
 		{
-			Vec3 oc = r.getOrigin() - m_Center;
-			float a = dot(r.getDirection(), r.getDirection());
-			float half_b = dot(oc, r.getDirection());
+			Vec3 oc = r.origin() - m_Center;
+			float a = dot(r.direction(), r.direction());
+			float half_b = dot(oc, r.direction());
 			float c = dot(oc, oc) - m_RadSquared;
 			float discriminant = half_b * half_b - a * c;
 

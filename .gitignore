@@ -3,6 +3,7 @@
 !vendor/bin/premake/
 bin-int/
 x64/
+vendor/
 
 # Visual Studio files and folder
 .vs/
@@ -10,3 +11,4 @@ x64/
 **.vcxproj
 **.vcxproj.filters
 **.vcxproj.user
+**.nvsettings

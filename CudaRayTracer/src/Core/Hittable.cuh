@@ -6,16 +6,17 @@ namespace CRT
 	class Material;
 	class Lambertian;
 	class Sphere;
-	
+
 	struct HitInfo {
 		Vec3 Point;
 		Vec3 Normal;
 		int MaterialIndex;
 		float IntersectionTime;
 		bool IsNormalOutward;
+		float U_TexCoord, V_TexCoord;
 
 		__device__ inline void setFaceNormal(const Ray& r, const Vec3& outward_normal) {
-			IsNormalOutward = dot(r.getDirection(), outward_normal) < 0;
+			IsNormalOutward = dot(r.direction(), outward_normal) < 0;
 			Normal = IsNormalOutward ? outward_normal : -outward_normal;
 		}
 	};

@@ -10,7 +10,7 @@ namespace CRT
 	public:
 		float e[3];
 
-		__host__ __device__ Vec3() : e{ 0,0,0 } {}
+		__host__ __device__ Vec3() {};
 		__host__ __device__ Vec3(float e0, float e1, float e2) : e{ e0, e1, e2 } {}
 		__host__ __device__ Vec3(float e) : e{ e, e, e } {}
 
@@ -71,7 +71,7 @@ namespace CRT
 			return e[0] * e[0] + e[1] * e[1] + e[2] * e[2];
 		}
 
-		__host__ __device__ bool near_zero() const { // Return true if the vector is close to zero in all dimensions.
+		__host__ __device__ bool nearZero() const { // Return true if the vector is close to zero in all dimensions.
 			auto s = 1e-8f;
 			return (fabs(e[0]) < s) && (fabs(e[1]) < s) && (fabs(e[2]) < s);
 		}

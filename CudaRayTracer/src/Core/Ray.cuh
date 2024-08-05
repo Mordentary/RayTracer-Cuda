@@ -15,8 +15,8 @@ namespace CRT
 		{
 			return m_Origin + distance * m_Direction;
 		}
-		__device__ inline const Vec3& getOrigin() const { return m_Origin; }
-		__device__ inline const Vec3& getDirection() const { return m_Direction; }
+		__device__ inline const Vec3& origin() const { return m_Origin; }
+		__device__ inline const Vec3& direction() const { return m_Direction; }
 
 	private:
 		Vec3 m_Origin{};

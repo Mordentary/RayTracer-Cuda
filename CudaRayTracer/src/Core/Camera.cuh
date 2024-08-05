@@ -8,18 +8,25 @@
 
 namespace CRT
 {
-
-	__device__ static constexpr int DEFAULT_SAMPLES_PER_PIXEL = 100;
+	__device__ static constexpr int DEFAULT_SAMPLES_PER_PIXEL = 500;
 
 	class Camera
 	{
 	public:
 		__host__ __device__ Camera() = default;
 
+
 		__host__ __device__ Camera(float aspectRatio, float fov, Vec3 position, Vec3 target, Vec3 up, float aperture, float focusDist)
 			: m_AspectRatio(aspectRatio), m_VerticalFOV(fov), m_Position(position), m_Aperture(aperture), m_FocusDist(focusDist)
 		{
 			m_WorldUp = up;
+			m_SamplesPerPixel = 2;
+			m_PixelSampleScale = 1.0f / m_SamplesPerPixel;
+			m_Yaw = -90.0f;
+			m_Pitch = 0.0f;
+			m_MovementSpeed = 2.5f;
+			m_MouseSensitivity = 0.3f;
+			m_HighQualityMode = m_CameraMoves = m_CameraRotates = false;
 			updateCameraVectors();
 		}
 
@@ -43,11 +50,24 @@ namespace CRT
 			updatePosition(deltaTime);
 			updateCameraVectors();
 
+			if (sf::Keyboard::isKeyPressed(sf::Keyboard::F))
+			{
+				m_HighQualityMode = !m_HighQualityMode;
+			}
+
 			if (m_CameraRotates || m_CameraMoves)
+			{
 				m_SamplesPerPixel = 2;
+				m_HighQualityMode = false;
+			}
+			else if (m_HighQualityMode)
+			{
+				m_SamplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL;
+			}
 			else
+			{
 				m_SamplesPerPixel = 2;
-			
+			}
 
 			m_PixelSampleScale = 1.f / m_SamplesPerPixel;
 		}
@@ -68,9 +88,6 @@ namespace CRT
 	private:
 		__host__ void updateRotation(float deltaTime, int windowWidth, int windowHeight, float mouseX, float mouseY, bool mousePressed)
 		{
-
-
-
 			static bool firstMouse = true;
 			static float lastX = windowWidth / 2.0f;
 			static float lastY = windowHeight / 2.0f;
@@ -80,8 +97,6 @@ namespace CRT
 
 			if (mousePressed)
 			{
-
-
 				if (firstMouse)
 				{
 					lastX = mouseX;
@@ -104,11 +119,8 @@ namespace CRT
 				lastX = smoothX;
 				lastY = smoothY;
 
-
-
 				xoffset *= -m_MouseSensitivity; // Inverted X rotation
 				yoffset *= -m_MouseSensitivity; // Inverted Y rotation
-
 
 				m_Yaw += xoffset;
 				m_Pitch += yoffset;
@@ -143,7 +155,6 @@ namespace CRT
 				m_CameraMoves = true;
 			else
 				m_CameraMoves = false;
-
 		}
 
 		__host__ __device__ void updateCameraVectors()
@@ -172,8 +183,8 @@ namespace CRT
 		}
 
 	public:
-		int m_SamplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL;
-		float m_PixelSampleScale = 1.f / m_SamplesPerPixel;
+		int m_SamplesPerPixel;
+		float m_PixelSampleScale;
 	private:
 		Vec3 m_Position;
 		Vec3 m_Front;
@@ -181,10 +192,10 @@ namespace CRT
 		Vec3 m_Right;
 		Vec3 m_WorldUp;
 
-		float m_Yaw = -90.0f;
-		float m_Pitch = 0.0f;
-		float m_MovementSpeed = 2.5f;
-		float m_MouseSensitivity = 0.3f;
+		float m_Yaw;
+		float m_Pitch;
+		float m_MovementSpeed;
+		float m_MouseSensitivity;
 
 		float m_AspectRatio;
 		float m_VerticalFOV;
@@ -196,6 +207,7 @@ namespace CRT
 		Vec3 m_Vertical;
 		float m_LensRadius;
 
-		bool m_CameraMoves = false, m_CameraRotates = false;
+		bool m_CameraMoves, m_CameraRotates;
+		bool m_HighQualityMode;
 	};
 }

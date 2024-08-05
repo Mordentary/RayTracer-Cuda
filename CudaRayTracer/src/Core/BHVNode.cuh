@@ -29,8 +29,6 @@ namespace CRT
 			// Push initial work to stack
 			stack[stack_top++] = { 0, num_objects, 0 };
 
-
-
 			while (stack_top > 0)
 			{
 				// Pop work from stack
@@ -42,7 +40,7 @@ namespace CRT
 				BVHNode& node = nodes[node_index];
 				int object_span = end - start;
 
-				 node.m_BoundingBox = objects->m_Objects[start]->boundingBox();
+				node.m_BoundingBox = objects->m_Objects[start]->boundingBox();
 				for (int i = start + 1; i < end; i++)
 					node.m_BoundingBox = AABB(node.m_BoundingBox, objects->m_Objects[i]->boundingBox());
 
@@ -58,18 +56,16 @@ namespace CRT
 				{
 					//int axis = Utility::randomInt(0, 2, rand_state);
 
-				 int axis = node.m_BoundingBox.longestAxis();
-
+					int axis = node.m_BoundingBox.longestAxis();
 
 					int mid = start + object_span / 2;
 
 					// Sort objects if needed
 					if (object_span > 2)
 					{
-						insertionSort(objects->m_Objects + start, object_span, axis);
+						optimizedSelectionSort(objects->m_Objects + start, object_span, axis);
 					}
 
-					// Set up this node
 					int left_child = next_node_index++;
 					int right_child = next_node_index++;
 
@@ -77,13 +73,10 @@ namespace CRT
 					node.m_Right = right_child;
 					node.m_IsLeaf = false;
 
-					// Push right child work to stack
 					stack[stack_top++] = { mid, end, right_child };
-					// Push left child work to stack
 					stack[stack_top++] = { start, mid, left_child };
 				}
 			}
-
 		}
 
 		__device__ void insertionSort(Hittable** arr, int n, int axis) {
@@ -98,67 +91,136 @@ namespace CRT
 				arr[j + 1] = key;
 			}
 		}
-
-		struct StackItem
+		__device__ __forceinline__ void optimizedSelectionSort(Hittable** arr, int n, int axis) 
 		{
-			int nodeIndex;
-			Interval t_interval;
-		};
+				#pragma unroll 1
+			for (int i = 0; i < n - 1; i++) {
+				Hittable* minVal = arr[i];
+				int minIdx = i;
+
+				#pragma unroll 8
+				for (int j = i + 1; j < n; j++) {
+					Hittable* newVal = arr[j];
+					bool isLess = boxCompare(newVal, minVal, axis);
+					minIdx = isLess ? j : minIdx;
+					minVal = isLess ? newVal : minVal;
+				}
+
+				if (minIdx != i) {
+					arr[minIdx] = arr[i];
+					arr[i] = minVal;
+				}
+			}
+		}
+
+		//__device__ virtual bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override
+		//{
+		//	struct StackItem
+		//	{
+		//		int nodeIndex;
+		//		Interval t_interval;
+		//	};
+
+		//	const size_t stackSize = 32;
+		//	StackItem stack[stackSize];
+		//	int stackPtr = 1;
+
+		//	stack[0] = { 0, ray_t };
+
+		//	bool hitAnything = false;
+		//	HitInfo tempRec;
+		//	float closest_so_far = ray_t.Max;
+
+		//	while (stackPtr > 0)
+		//	{
+		//		StackItem current = stack[--stackPtr];
+		//		int currentIndex = current.nodeIndex;
+		//		Interval currentInterval = current.t_interval;
+
+		//		if (currentIndex < 0 || currentIndex >= m_World->m_NumObjects * 2 - 1) continue;
+		//		if (!m_SceneNodes[currentIndex].m_BoundingBox.hit(r, currentInterval))
+		//			continue;
+
+		//		if (m_SceneNodes[currentIndex].m_IsLeaf)
+		//		{
+		//			for (int i = 0; i < m_SceneNodes[currentIndex].m_ObjectCount; ++i)
+		//			{
+		//				int objectIndex = m_SceneNodes[currentIndex].m_ObjectIndex + i;
+		//				if (objectIndex < 0 || objectIndex >= m_World->m_NumObjects) continue;
+
+		//				if (m_World->m_Objects[objectIndex]->hit(r, Interval(currentInterval.Min, closest_so_far), tempRec))
+		//				{
+		//					hitAnything = true;
+		//					closest_so_far = tempRec.IntersectionTime;
+		//					rec = tempRec;
+		//				}
+		//			}
+		//		}
+		//		else
+		//		{
+		//			if (stackPtr < stackSize - 2)
+		//			{
+		//				Vec3 origin = r.origin();
+		//				if (dot(origin - m_SceneNodes[currentIndex].m_BoundingBox.center(), r.direction()) > 0)
+		//				{
+		//					stack[stackPtr++] = { m_SceneNodes[currentIndex].m_Right, currentInterval };
+		//					stack[stackPtr++] = { m_SceneNodes[currentIndex].m_Left, currentInterval };
+		//				}
+		//				else
+		//				{
+		//					stack[stackPtr++] = { m_SceneNodes[currentIndex].m_Left, currentInterval };
+		//					stack[stackPtr++] = { m_SceneNodes[currentIndex].m_Right, currentInterval };
+		//				}
+		//			}
+		//		}
+		//	}
+
+		//	return hitAnything;
+		//}
+
+
 		__device__ virtual bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override
 		{
-			// Stack for traversing the BVH tree
-
-			StackItem stack[16];
-			int stackSize = 1;
-
-			// Start with the root node (index 0	
-			stack[0] = { 0, ray_t };
-
 			bool hitAnything = false;
-			HitInfo tempRec;
+			float closestSoFar = ray_t.Max;
 
-			while (stackSize > 0)
+			// Traversal stack
+			int stack[MAX_STACK_SIZE];
+			int stackPtr = 0;
+			int nodeIdx = 0;  // Start with the root
+
+			while (true) 
 			{
-				StackItem current = stack[--stackSize];
-				int currentIndex = current.nodeIndex;
-				Interval currentInterval = current.t_interval;
+				const BVHNode& node = m_SceneNodes[nodeIdx];
 
-				if (currentIndex < 0 || currentIndex >= m_World->m_NumObjects * 2 - 1) continue;
-				// Check if the ray intersects with the current node's bounding box
-				if (!m_SceneNodes[currentIndex].m_BoundingBox.hit(r, currentInterval))
-					continue;
-
-				if (m_SceneNodes[currentIndex].m_IsLeaf)
-				{
-					// Leaf node: test intersection with the object
-					for (int i = 0; i < m_SceneNodes[currentIndex].m_ObjectCount; ++i)
-					{
-						int objectIndex = m_SceneNodes[currentIndex].m_ObjectIndex + i;
-						if (objectIndex < 0 || objectIndex >= m_World->m_NumObjects) continue;
-
-						if (m_World->m_Objects[objectIndex]->hit(r, currentInterval, tempRec))
-						{
-							hitAnything = true;
-							currentInterval.Max = tempRec.IntersectionTime;
-							rec = tempRec;
+				if (node.m_BoundingBox.hit(r,ray_t)) {
+					if (node.m_IsLeaf) {
+						for (int i = 0; i < node.m_ObjectCount; ++i) {
+							int objectIndex = node.m_ObjectIndex + i;
+							HitInfo tempRec;
+							if (m_World->m_Objects[objectIndex]->hit(r, Interval(ray_t.Min, closestSoFar), tempRec)) {
+								hitAnything = true;
+								closestSoFar = tempRec.IntersectionTime;
+								rec = tempRec;
+							}
 						}
+						if (stackPtr == 0) break;
+						nodeIdx = stack[--stackPtr];
+					}
+					else {
+						stack[stackPtr++] = node.m_Right;
+						nodeIdx = node.m_Left;  
 					}
 				}
-				else
-				{
-					// Internal node: add child nodes to the stack
-					if (stackSize < (16) - 2)
-					{
-						// Right child
-						stack[stackSize++] = { m_SceneNodes[currentIndex].m_Right, currentInterval };
-						// Left child (always the next node in the array)
-						stack[stackSize++] = { m_SceneNodes[currentIndex].m_Left, currentInterval };
-					}
+				else {
+					if (stackPtr == 0) break;
+					nodeIdx = stack[--stackPtr];
 				}
 			}
 
 			return hitAnything;
 		}
+
 	private:
 		int m_Left;
 		int m_Right;
@@ -167,8 +229,9 @@ namespace CRT
 		bool m_IsLeaf;
 		AABB m_BoundingBox;
 		BVHNode* m_SceneNodes;
-		HittableList* m_World;  // Pointer to the array of objects
+		HittableList* m_World;
 
+	private:
 		__device__ static bool boxCompare(const Hittable* a, const Hittable* b, int axis_index) {
 			auto a_axis_interval = a->boundingBox().axisInterval(axis_index);
 			auto b_axis_interval = b->boundingBox().axisInterval(axis_index);
