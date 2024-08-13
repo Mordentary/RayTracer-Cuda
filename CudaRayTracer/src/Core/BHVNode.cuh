@@ -1,3 +1,4 @@
+#pragma once
 #include"HittableList.cuh"
 
 namespace CRT
@@ -7,10 +8,10 @@ namespace CRT
 	public:
 		__host__ __device__ BVHNode() = default;
 
-		__device__ BVHNode(HittableList* list, BVHNode* preallocatedNodes, curandState* rand_state) : m_SceneNodes(preallocatedNodes), m_World(list)
-		{
-			buildBVH(list, list->m_NumObjects, preallocatedNodes, rand_state);
-		}
+		//__device__ BVHNode(HittableList* list, BVHNode* preallocatedNodes, curandState* rand_state) : m_SceneNodes(preallocatedNodes), m_World(list)
+		//{
+		//	buildBVHScene(list, list->m_NumObjects, preallocatedNodes, rand_state);
+		//}
 
 #define MAX_STACK_SIZE 64  // Adjust based on your maximum tree depth
 
@@ -20,11 +21,11 @@ namespace CRT
 			int node_index;
 		};
 
-		__device__ void buildBVH(HittableList* objects, int num_objects, BVHNode* nodes, curandState* rand_state)
+		__device__ static void buildBVHScene(HittableList* objects, int num_objects, BVHNode* nodes, curandState* rand_state)
 		{
 			StackEntry stack[MAX_STACK_SIZE];
 			int stack_top = 0;
-			int next_node_index = 1;  // 0 is root
+			int next_node_index = 0;
 
 			// Push initial work to stack
 			stack[stack_top++] = { 0, num_objects, 0 };
@@ -37,8 +38,13 @@ namespace CRT
 				int end = current.end;
 				int node_index = current.node_index;
 
+				new (&nodes[node_index]) BVHNode();
 				BVHNode& node = nodes[node_index];
+
 				int object_span = end - start;
+
+				node.m_World = objects;
+				node.m_SceneNodes = nodes;
 
 				node.m_BoundingBox = objects->m_Objects[start]->boundingBox();
 				for (int i = start + 1; i < end; i++)
@@ -50,7 +56,7 @@ namespace CRT
 					node.m_ObjectIndex = start;
 					node.m_ObjectCount = 1;
 					node.m_IsLeaf = true;
-					node.m_BoundingBox = objects->m_Objects[start]->boundingBox();
+					//node.m_BoundingBox = objects->m_Objects[start]->boundingBox();
 				}
 				else
 				{
@@ -58,16 +64,17 @@ namespace CRT
 
 					int axis = node.m_BoundingBox.longestAxis();
 
+					//if (object_span > 2)
+					//{
+					//	insertionSort(objects->m_Objects + start, object_span, axis);
+					//}
+
 					int mid = start + object_span / 2;
 
 					// Sort objects if needed
-					if (object_span > 2)
-					{
-						optimizedSelectionSort(objects->m_Objects + start, object_span, axis);
-					}
 
-					int left_child = next_node_index++;
-					int right_child = next_node_index++;
+					int left_child = ++next_node_index;
+					int right_child = ++next_node_index;
 
 					node.m_Left = left_child;
 					node.m_Right = right_child;
@@ -79,7 +86,9 @@ namespace CRT
 			}
 		}
 
-		__device__ void insertionSort(Hittable** arr, int n, int axis) {
+
+
+			__device__ static void insertionSort(Hittable** arr, int n, int axis) {
 			for (int i = 1; i < n; i++) {
 				Hittable* key = arr[i];
 				int j = i - 1;
@@ -91,28 +100,24 @@ namespace CRT
 				arr[j + 1] = key;
 			}
 		}
-		__device__ __forceinline__ void optimizedSelectionSort(Hittable** arr, int n, int axis) 
+		__device__ __forceinline__ static void optimizedSelectionSort(Hittable** arr, int n, int axis)
 		{
-				#pragma unroll 1
 			for (int i = 0; i < n - 1; i++) {
-				Hittable* minVal = arr[i];
 				int minIdx = i;
-
-				#pragma unroll 8
 				for (int j = i + 1; j < n; j++) {
-					Hittable* newVal = arr[j];
-					bool isLess = boxCompare(newVal, minVal, axis);
-					minIdx = isLess ? j : minIdx;
-					minVal = isLess ? newVal : minVal;
+					if (boxCompare(arr[j], arr[minIdx], axis)) {
+						minIdx = j;
+					}
 				}
-
 				if (minIdx != i) {
-					arr[minIdx] = arr[i];
-					arr[i] = minVal;
+					Hittable* temp = arr[i];
+					arr[i] = arr[minIdx];
+					arr[minIdx] = temp;
 				}
 			}
 		}
 
+		//Old solution
 		//__device__ virtual bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override
 		//{
 		//	struct StackItem
@@ -178,38 +183,38 @@ namespace CRT
 		//	return hitAnything;
 		//}
 
-
-		__device__ virtual bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override
+		__device__ virtual inline bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override
 		{
 			bool hitAnything = false;
 			float closestSoFar = ray_t.Max;
 
 			// Traversal stack
-			int stack[MAX_STACK_SIZE];
+			uint32_t stack[MAX_STACK_SIZE / 4]{};
 			int stackPtr = 0;
 			int nodeIdx = 0;  // Start with the root
 
-			while (true) 
+			while (true)
 			{
 				const BVHNode& node = m_SceneNodes[nodeIdx];
 
-				if (node.m_BoundingBox.hit(r,ray_t)) {
+				if (node.m_BoundingBox.hit(r, ray_t)) {
 					if (node.m_IsLeaf) {
-						for (int i = 0; i < node.m_ObjectCount; ++i) {
-							int objectIndex = node.m_ObjectIndex + i;
-							HitInfo tempRec;
-							if (m_World->m_Objects[objectIndex]->hit(r, Interval(ray_t.Min, closestSoFar), tempRec)) {
-								hitAnything = true;
-								closestSoFar = tempRec.IntersectionTime;
-								rec = tempRec;
-							}
+						//for (int i = 0; i < node.m_ObjectCount; ++i) {
+						int objectIndex = node.m_ObjectIndex;
+						//+ i;
+						HitInfo tempRec;
+						if (m_World->m_Objects[objectIndex]->hit(r, Interval(ray_t.Min, closestSoFar), tempRec)) {
+							hitAnything = true;
+							closestSoFar = tempRec.IntersectionTime;
+							rec = tempRec;
 						}
+						//}
 						if (stackPtr == 0) break;
 						nodeIdx = stack[--stackPtr];
 					}
 					else {
 						stack[stackPtr++] = node.m_Right;
-						nodeIdx = node.m_Left;  
+						nodeIdx = node.m_Left;
 					}
 				}
 				else {
@@ -227,7 +232,6 @@ namespace CRT
 		int m_ObjectIndex;  // For leaf nodes
 		int m_ObjectCount;  // For leaf nodes
 		bool m_IsLeaf;
-		AABB m_BoundingBox;
 		BVHNode* m_SceneNodes;
 		HittableList* m_World;
 

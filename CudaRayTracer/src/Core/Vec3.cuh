@@ -30,7 +30,6 @@ namespace CRT
 			return !(*this == v);
 		}
 
-
 		__host__ __device__ Vec3& operator+=(const Vec3& v) {
 			e[0] += v.e[0];
 			e[1] += v.e[1];
@@ -75,9 +74,72 @@ namespace CRT
 			auto s = 1e-8f;
 			return (fabs(e[0]) < s) && (fabs(e[1]) < s) && (fabs(e[2]) < s);
 		}
-	}
-	;
+	};
+	class Vec2
+	{
+	public:
+		float e[2];
 
+		__host__ __device__ Vec2() : e{ 0, 0 } {}
+		__host__ __device__ Vec2(float e0, float e1) : e{ e0, e1 } {}
+		__host__ __device__ Vec2(float e) : e{ e, e } {}
+
+		__host__ __device__ float x() const { return e[0]; }
+		__host__ __device__ float y() const { return e[1]; }
+
+		__host__ __device__ Vec2 operator-() const { return Vec2(-e[0], -e[1]); }
+		__host__ __device__ float operator[](int i) const { return e[i]; }
+		__host__ __device__ float& operator[](int i) { return e[i]; }
+
+		__host__ __device__ bool operator==(const Vec2& v) const {
+			return e[0] == v.e[0] && e[1] == v.e[1];
+		}
+
+		__host__ __device__ bool operator!=(const Vec2& v) const {
+			return !(*this == v);
+		}
+
+		__host__ __device__ Vec2& operator+=(const Vec2& v) {
+			e[0] += v.e[0];
+			e[1] += v.e[1];
+			return *this;
+		}
+
+		__host__ __device__ Vec2& operator*=(const Vec2& v) {
+			e[0] *= v.e[0];
+			e[1] *= v.e[1];
+			return *this;
+		}
+
+		__host__ __device__ Vec2& operator-=(const Vec2& v) {
+			e[0] -= v.e[0];
+			e[1] -= v.e[1];
+			return *this;
+		}
+
+		__host__ __device__ Vec2& operator*=(float t) {
+			e[0] *= t;
+			e[1] *= t;
+			return *this;
+		}
+
+		__host__ __device__ Vec2& operator/=(float t) {
+			return *this *= 1 / t;
+		}
+
+		__host__ __device__ float length() const {
+			return sqrt(lengthSquared());
+		}
+
+		__host__ __device__ float lengthSquared() const {
+			return e[0] * e[0] + e[1] * e[1];
+		}
+
+		__host__ __device__ bool nearZero() const {
+			auto s = 1e-8f;
+			return (fabs(e[0]) < s) && (fabs(e[1]) < s);
+		}
+	};
 	using Point3 = Vec3;
 	using Color = Vec3;
 	// Vector Utility Functions
@@ -110,11 +172,9 @@ namespace CRT
 		return Vec3(v.e[0] * t, v.e[1] * t, v.e[2] * t);
 	}
 
-
 	__host__ __device__ inline Vec3 operator/(const Vec3& v, float t) {
 		return (1 / t) * v;
 	}
-
 
 	inline std::ostream& operator<<(std::ostream& out, const Vec3& v) {
 		return out << v.e[0] << ' ' << v.e[1] << ' ' << v.e[2];

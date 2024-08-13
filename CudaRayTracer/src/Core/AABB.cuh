@@ -12,18 +12,25 @@ namespace CRT
 		__device__ AABB() {}
 
 		__device__ AABB(const Interval& x, const Interval& y, const Interval& z)
-			: x(x), y(y), z(z) {}
+			: x(x), y(y), z(z)
+		{
+			padToMinimums();
+		}
 
-		__device__ AABB(const AABB& box0, const AABB& box1) {
+		__device__ AABB(const AABB& box0, const AABB& box1)
+		{
 			x = Interval(box0.x, box1.x);
 			y = Interval(box0.y, box1.y);
 			z = Interval(box0.z, box1.z);
 		}
 
-		__device__ 	AABB(const Point3& a, const Point3& b) {
-			x = (a[0] <= b[0]) ? Interval(a[0], b[0]) : Interval(b[0], a[0]);
-			y = (a[1] <= b[1]) ? Interval(a[1], b[1]) : Interval(b[1], a[1]);
-			z = (a[2] <= b[2]) ? Interval(a[2], b[2]) : Interval(b[2], a[2]);
+		__device__ 	AABB(const Point3& a, const Point3& b)
+		{
+			x = Interval(std::fmin(a[0], b[0]), std::fmax(a[0], b[0]));
+			y = Interval(std::fmin(a[1], b[1]), std::fmax(a[1], b[1]));
+			z = Interval(std::fmin(a[2], b[2]), std::fmax(a[2], b[2]));
+
+			padToMinimums();
 		}
 
 		__host__ __device__ const Interval& axisInterval(int n) const
@@ -33,31 +40,8 @@ namespace CRT
 			return x;
 		}
 
-		__device__ bool hit(const Ray& r, Interval ray_t) const {
-			//const Point3& ray_orig = r.origin();
-			//const Vec3& ray_dir = r.direction();
-
-			//for (int axis = 0; axis < 3; axis++) {
-			//	const Interval& ax = axisInterval(axis);
-			//	const double adinv = 1.0 / ray_dir[axis];
-
-			//	auto t0 = (ax.Min - ray_orig[axis]) * adinv;
-			//	auto t1 = (ax.Max - ray_orig[axis]) * adinv;
-
-			//	if (t0 < t1) {
-			//		if (t0 > ray_t.Min) ray_t.Min = t0;
-			//		if (t1 < ray_t.Max) ray_t.Max = t1;
-			//	}
-			//	else {
-			//		if (t1 > ray_t.Min) ray_t.Min = t1;
-			//		if (t0 < ray_t.Max) ray_t.Max = t0;
-			//	}
-
-			//	if (ray_t.Max <= ray_t.Min)
-			//		return false;
-			//}
-			//return true;
-
+		__device__ inline bool hit(const Ray& r, Interval ray_t) const
+		{
 			const Vec3& origin = r.origin();
 			const Vec3& dir = r.direction();
 			const Vec3 invDir(1.0f / dir.x(), 1.0f / dir.y(), 1.0f / dir.z());
@@ -75,20 +59,32 @@ namespace CRT
 			return tmax >= tmin && tmax > 0;
 		}
 
-		__device__ int longestAxis() const {
+		__device__ int longestAxis() const
+		{
 			if (x.size() > y.size())
 				return x.size() > z.size() ? 0 : 2;
 			else
 				return y.size() > z.size() ? 1 : 2;
 		}
 
-		__device__ Point3 center() const {
+		__device__ Point3 center() const
+		{
 			return Point3(
 				(x.Min + x.Max) * 0.5f,
 				(y.Min + y.Max) * 0.5f,
 				(z.Min + z.Max) * 0.5f
 			);
 		}
+
+
+	private:
+		__device__ void padToMinimums() {
+			double delta = 0.0001;
+			if (x.size() < delta) x = x.expand(delta);
+			if (y.size() < delta) y = y.expand(delta);
+			if (z.size() < delta) z = z.expand(delta);
+		}
+
 	};
 #define AABB_EMPTY AABB(INTERVAL_EMPTY, INTERVAL_EMPTY, INTERVAL_EMPTY)
 #define AABB_UNIVERSE AABB(INTERVAL_UNIVERSE, INTERVAL_UNIVERSE, INTERVAL_UNIVERSE)

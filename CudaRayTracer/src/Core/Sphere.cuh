@@ -49,6 +49,6 @@ namespace CRT
 	private:
 		Vec3 m_Center;
 		float m_Radius, m_RadSquared;
-		 int m_MaterialIndex;
+		 uint32_t m_MaterialIndex;
 	};
 }

@@ -10,6 +10,7 @@ IncludeDir = {}
 IncludeDir["glm"] = "CudaRayTracer/vendor/glm"
 IncludeDir["stb_image"] = "CudaRayTracer/vendor/stb_image"
 IncludeDir["SFML"] = "CudaRayTracer/vendor/SFML-2.6.0/include"
+IncludeDir["tinyObj"] = "CudaRayTracer/vendor/tinyObjLoader"
 
 -- CUDA configuration
 cudaToolkitDir = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5" 
@@ -33,7 +34,8 @@ project "CudaRayTracer"
         "%{prj.name}/src/**.cuh",
         "%{prj.name}/vendor/stb_image/**.h",
         "%{prj.name}/vendor/stb_image/**.cpp",
-        "%{prj.name}/vendor/SFML-2.6.00/include/**.hpp"
+            "%{prj.name}/vendor/SFML-2.6.00/include/**.hpp",
+        "%{prj.name}/vendor/tinyObjLoader/**.h"
     }
 
     libdirs {
@@ -58,6 +60,7 @@ project "CudaRayTracer"
         "%{IncludeDir.glm}",
         "%{IncludeDir.stb_image}",
         "%{IncludeDir.SFML}",
+        "%{IncludeDir.tinyObj}",
         cudaToolkitIncludeDir
     }
 

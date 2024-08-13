@@ -5,8 +5,8 @@ namespace CRT
 	struct Interval
 	{
 		float
-			Min = -INFINITY_CRT,
-			Max = INFINITY_CRT;
+			Min = INFINITY_CRT,
+			Max = -INFINITY_CRT;
 
 		__device__ __host__ Interval() = default;
 

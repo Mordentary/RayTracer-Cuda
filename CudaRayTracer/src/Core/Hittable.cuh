@@ -10,7 +10,7 @@ namespace CRT
 	struct HitInfo {
 		Vec3 Point;
 		Vec3 Normal;
-		int MaterialIndex;
+		uint32_t MaterialIndex;
 		float IntersectionTime;
 		bool IsNormalOutward;
 		float U_TexCoord, V_TexCoord;
@@ -24,7 +24,7 @@ namespace CRT
 	class Hittable
 	{
 	public:
-		__device__ virtual bool hit(const Ray& ray, Interval ray_t, HitInfo& info) const = 0;
+		__device__ virtual inline bool hit(const Ray& ray, Interval ray_t, HitInfo& info) const = 0;
 		__device__ AABB boundingBox() const { return m_BoundingBox; }
 
 	protected:

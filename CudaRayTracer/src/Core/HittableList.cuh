@@ -13,9 +13,11 @@ namespace CRT
 			for (int i = 0; i < s_MAX_MATERIALS; i++) {
 				m_Materials[i] = nullptr;
 			}
+			m_BoundingBox = AABB();
+
 		}
 
-		__device__ ~HittableList() {
+			__device__ ~HittableList() {
 			for (int i = 0; i < m_NumObjects; i++) {
 				if (m_Objects[i]) {
 					delete m_Objects[i];
@@ -73,6 +75,5 @@ namespace CRT
 		Material* m_Materials[s_MAX_MATERIALS];
 		int m_NumMaterials;
 
-		AABB m_BoundingBox;
 	};
 }
