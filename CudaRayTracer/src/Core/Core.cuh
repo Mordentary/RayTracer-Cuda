@@ -14,6 +14,31 @@
 
 #endif
 
+template<class T>
+__host__ __device__ void swap(T& val1, T& t2)
+{
+	T temp = val1;
+	val1 = val2;
+	val2 = val1;
+
+}
+
+template<class T>
+__host__ __device__ void swap_triplet(T& val1, T& val2, T& val3, T& t1, T& t2, T& t3)
+{
+	T temp1 = val1;
+	T temp2 = val2;
+	T temp3 = val3;
+
+	val1 = t1;
+	val2 = t2;
+	val3 = t3;
+
+	t1 = temp1;
+	t2 = temp2;
+	t3 = temp3;
+}
+
 namespace CudaAlloc
 {
 	enum class Type { Bytes, Elements };

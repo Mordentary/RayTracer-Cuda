@@ -1,19 +1,16 @@
 #pragma once
 #include"HittableList.cuh"
+#include "AABB.cuh"
 
 namespace CRT
 {
+#define MAX_STACK_SIZE 64
+
 	class BVHNode : public Hittable
 	{
+		friend class Mesh;
 	public:
 		__host__ __device__ BVHNode() = default;
-
-		//__device__ BVHNode(HittableList* list, BVHNode* preallocatedNodes, curandState* rand_state) : m_SceneNodes(preallocatedNodes), m_World(list)
-		//{
-		//	buildBVHScene(list, list->m_NumObjects, preallocatedNodes, rand_state);
-		//}
-
-#define MAX_STACK_SIZE 64  // Adjust based on your maximum tree depth
 
 		struct StackEntry {
 			int start;
@@ -44,11 +41,11 @@ namespace CRT
 				int object_span = end - start;
 
 				node.m_World = objects;
-				node.m_SceneNodes = nodes;
+				node.m_Nodes = nodes;
 
-				node.m_BoundingBox = objects->m_Objects[start]->boundingBox();
-				for (int i = start + 1; i < end; i++)
-					node.m_BoundingBox = AABB(node.m_BoundingBox, objects->m_Objects[i]->boundingBox());
+				node.m_BoundingBox = AABB_EMPTY;
+				for (int i = start; i < end; i++)
+					node.m_BoundingBox.expand(objects->m_Objects[i]->boundingBox());
 
 				if (object_span == 1)
 				{
@@ -86,9 +83,7 @@ namespace CRT
 			}
 		}
 
-
-
-			__device__ static void insertionSort(Hittable** arr, int n, int axis) {
+		__device__ static void insertionSort(Hittable** arr, int n, int axis) {
 			for (int i = 1; i < n; i++) {
 				Hittable* key = arr[i];
 				int j = i - 1;
@@ -117,93 +112,27 @@ namespace CRT
 			}
 		}
 
-		//Old solution
-		//__device__ virtual bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override
-		//{
-		//	struct StackItem
-		//	{
-		//		int nodeIndex;
-		//		Interval t_interval;
-		//	};
-
-		//	const size_t stackSize = 32;
-		//	StackItem stack[stackSize];
-		//	int stackPtr = 1;
-
-		//	stack[0] = { 0, ray_t };
-
-		//	bool hitAnything = false;
-		//	HitInfo tempRec;
-		//	float closest_so_far = ray_t.Max;
-
-		//	while (stackPtr > 0)
-		//	{
-		//		StackItem current = stack[--stackPtr];
-		//		int currentIndex = current.nodeIndex;
-		//		Interval currentInterval = current.t_interval;
-
-		//		if (currentIndex < 0 || currentIndex >= m_World->m_NumObjects * 2 - 1) continue;
-		//		if (!m_SceneNodes[currentIndex].m_BoundingBox.hit(r, currentInterval))
-		//			continue;
-
-		//		if (m_SceneNodes[currentIndex].m_IsLeaf)
-		//		{
-		//			for (int i = 0; i < m_SceneNodes[currentIndex].m_ObjectCount; ++i)
-		//			{
-		//				int objectIndex = m_SceneNodes[currentIndex].m_ObjectIndex + i;
-		//				if (objectIndex < 0 || objectIndex >= m_World->m_NumObjects) continue;
-
-		//				if (m_World->m_Objects[objectIndex]->hit(r, Interval(currentInterval.Min, closest_so_far), tempRec))
-		//				{
-		//					hitAnything = true;
-		//					closest_so_far = tempRec.IntersectionTime;
-		//					rec = tempRec;
-		//				}
-		//			}
-		//		}
-		//		else
-		//		{
-		//			if (stackPtr < stackSize - 2)
-		//			{
-		//				Vec3 origin = r.origin();
-		//				if (dot(origin - m_SceneNodes[currentIndex].m_BoundingBox.center(), r.direction()) > 0)
-		//				{
-		//					stack[stackPtr++] = { m_SceneNodes[currentIndex].m_Right, currentInterval };
-		//					stack[stackPtr++] = { m_SceneNodes[currentIndex].m_Left, currentInterval };
-		//				}
-		//				else
-		//				{
-		//					stack[stackPtr++] = { m_SceneNodes[currentIndex].m_Left, currentInterval };
-		//					stack[stackPtr++] = { m_SceneNodes[currentIndex].m_Right, currentInterval };
-		//				}
-		//			}
-		//		}
-		//	}
-
-		//	return hitAnything;
-		//}
-
 		__device__ virtual inline bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override
 		{
 			bool hitAnything = false;
-			float closestSoFar = ray_t.Max;
+			float closestSoFar = ray_t.max;
 
 			// Traversal stack
-			uint32_t stack[MAX_STACK_SIZE / 4]{};
+			uint32_t stack[MAX_STACK_SIZE / 2]{};
 			int stackPtr = 0;
 			int nodeIdx = 0;  // Start with the root
 
 			while (true)
 			{
-				const BVHNode& node = m_SceneNodes[nodeIdx];
-
-				if (node.m_BoundingBox.hit(r, ray_t)) {
+				const BVHNode& node = m_Nodes[nodeIdx];
+				HitInfo tempRec;
+				if (node.m_BoundingBox.hit(r, ray_t, tempRec)) {
 					if (node.m_IsLeaf) {
 						//for (int i = 0; i < node.m_ObjectCount; ++i) {
 						int objectIndex = node.m_ObjectIndex;
 						//+ i;
 						HitInfo tempRec;
-						if (m_World->m_Objects[objectIndex]->hit(r, Interval(ray_t.Min, closestSoFar), tempRec)) {
+						if (m_World->m_Objects[objectIndex]->hit(r, Interval(ray_t.min, closestSoFar), tempRec)) {
 							hitAnything = true;
 							closestSoFar = tempRec.IntersectionTime;
 							rec = tempRec;
@@ -232,14 +161,14 @@ namespace CRT
 		int m_ObjectIndex;  // For leaf nodes
 		int m_ObjectCount;  // For leaf nodes
 		bool m_IsLeaf;
-		BVHNode* m_SceneNodes;
+		BVHNode* m_Nodes;
 		HittableList* m_World;
 
 	private:
 		__device__ static bool boxCompare(const Hittable* a, const Hittable* b, int axis_index) {
 			auto a_axis_interval = a->boundingBox().axisInterval(axis_index);
 			auto b_axis_interval = b->boundingBox().axisInterval(axis_index);
-			return a_axis_interval.Min < b_axis_interval.Min;
+			return a_axis_interval.min < b_axis_interval.min;
 		}
 
 		__device__ static bool boxCompareX(const Hittable* a, const Hittable* b) {

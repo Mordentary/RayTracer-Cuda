@@ -52,10 +52,10 @@ namespace CRT
 		__device__ virtual bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override {
 			HitInfo temp_rec;
 			bool hit_anything = false;
-			float closest_so_far = ray_t.Max;
+			float closest_so_far = ray_t.max;
 
 			for (int i = 0; i < m_NumObjects; i++) {
-				if (m_Objects[i] && m_Objects[i]->hit(r, Interval(ray_t.Min, closest_so_far), temp_rec))
+				if (m_Objects[i] && m_Objects[i]->hit(r, Interval(ray_t.min, closest_so_far), temp_rec))
 				{
 					hit_anything = true;
 					closest_so_far = temp_rec.IntersectionTime;

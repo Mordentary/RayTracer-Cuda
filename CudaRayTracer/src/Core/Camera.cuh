@@ -8,7 +8,7 @@
 
 namespace CRT
 {
-	__device__ static constexpr int DEFAULT_SAMPLES_PER_PIXEL = 500;
+	__device__ static constexpr int DEFAULT_SAMPLES_PER_PIXEL = 2;
 
 	class Camera
 	{
@@ -20,7 +20,7 @@ namespace CRT
 			: m_AspectRatio(aspectRatio), m_VerticalFOV(fov), m_Position(position), m_Aperture(aperture), m_FocusDist(focusDist)
 		{
 			m_WorldUp = up;
-			m_SamplesPerPixel = 2;
+			m_SamplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL;
 			m_PixelSampleScale = 1.0f / m_SamplesPerPixel;
 			m_Yaw = -90.0f;
 			m_Pitch = 0.0f;
@@ -57,16 +57,16 @@ namespace CRT
 
 			if (m_CameraRotates || m_CameraMoves)
 			{
-				m_SamplesPerPixel = 2;
+				m_SamplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL;
 				m_HighQualityMode = false;
 			}
 			else if (m_HighQualityMode)
 			{
-				m_SamplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL;
+				m_SamplesPerPixel = 500;
 			}
 			else
 			{
-				m_SamplesPerPixel = 2;
+				m_SamplesPerPixel = DEFAULT_SAMPLES_PER_PIXEL;
 			}
 
 			m_PixelSampleScale = 1.f / m_SamplesPerPixel;

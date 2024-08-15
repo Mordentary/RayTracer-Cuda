@@ -11,7 +11,7 @@
 #include "Core/Vec3.cuh"
 #include"Core/Ray.cuh"
 #include"Core/Camera.cuh"
-#include"Core/BHVNode.cuh"
+#include"Core/BVHNode.cuh"
 #include"Core/Sphere.cuh"
 #include"Core/Utility.cuh"
 #include"Core/Material.cuh"
@@ -57,7 +57,7 @@ namespace CRT
 		Ray current_ray = r;
 		Color accumulated_color(1.0f, 1.0f, 1.0f);
 		Color final_color(0.0f, 0.0f, 0.0f);
-		const int MAX_BOUNCES = 50;
+		const int MAX_BOUNCES = 10;
 		const int MIN_BOUNCES = 3;
 		const float MAX_PROB = 0.95f;
 
@@ -101,16 +101,51 @@ namespace CRT
 		int x = blockIdx.x * blockDim.x + threadIdx.x;
 		int y = blockIdx.y * blockDim.y + threadIdx.y;
 		if (x >= width || y >= height) return;
-
 		int pixel_index = y * width + x;
-		curand_init(seed, pixel_index, 0, &rand_state[pixel_index]);
-	}
 
+		// Use a unique seed for each pixel
+		unsigned long long pixel_seed = seed + pixel_index;
+		curand_init(pixel_seed, pixel_index, 0, &rand_state[pixel_index]);
+	}
+	__device__ Color getLevelColor(int nodeLevel) {
+		const int maxLevels = 50; // Adjust based on your maximum expected tree depth
+		nodeLevel = nodeLevel % maxLevels; // Ensure we don't exceed our color array
+
+		// Define a set of distinct colors
+		const Color colors[] = {
+			Color(1.0f, 0.0f, 0.0f),   // Red
+			Color(0.0f, 1.0f, 0.0f),   // Green
+			Color(0.0f, 0.0f, 1.0f),   // Blue
+			Color(1.0f, 1.0f, 0.0f),   // Yellow
+			Color(1.0f, 0.5f, 0.0f),   // Orange
+			Color(0.5f, 0.0f, 1.0f),   // Purple
+			Color(0.0f, 0.5f, 0.0f),   // Dark Green
+		};
+
+		const int numColors = sizeof(colors) / sizeof(colors[0]);
+
+		// For deeper levels, alternate between full intensity and half intensity
+		Color baseColor = colors[nodeLevel % numColors];
+		if ((nodeLevel / numColors) % 2 == 1) {
+			baseColor = baseColor * 0.5f;
+		}
+
+		return baseColor;
+	}
 	__global__ void createRandomWorld(HittableList* world, Mesh* meshes, int* objectsNum, curandState* rand_state)
 	{
 		if (threadIdx.x == 0 && blockIdx.x == 0) {
 			new (world) CRT::HittableList();
 			//Ground material
+			//const int MAX_DEBUG_LEVELS = 50;
+			//// Create debug materials
+			//for (int i = 0; i < MAX_DEBUG_LEVELS; i++) {
+			//	Color levelColor = getLevelColor(i);
+			//	world->addMaterial(new Lambertian(levelColor));
+			//}
+
+			world->add(meshes);
+
 			int ground_material_index = world->addMaterial(new Lambertian(Color(0.5, 0.5, 0.5)));
 			world->add(new Sphere(Vec3(0, -1000, 0), 999, ground_material_index));
 
@@ -145,24 +180,23 @@ namespace CRT
 
 			//// Add three larger spheres
 
-			world->add(meshes);
-
 			int material2 = world->addMaterial(new Lambertian(Color(0.4, 0.2, 0.1)));
 			world->add(new Sphere(Vec3(-4, 3, 0), 0.5f, material2));
 
 			int material3 = world->addMaterial(new Metal(Color(0.7, 0.6, 0.5), 0.0f));
 			world->add(new Sphere(Vec3(4, 1, 0), 1.0f, material3));
 
-			//for (int i = 0; i < world->s_MAX_MATERIALS; i++) {
-			//	// Generate a random color (albedo)
-			//	Color albedo = Utility::randomVector(0.5f, 1.0f, rand_state);
+			for (int i = 0; i < world->s_MAX_MATERIALS; i++) {
+				// Generate a random color (albedo)
+				Color albedo = Utility::randomVector(0.2f, 1.0f, rand_state);
 
-			//	// Generate a random roughness between 0 (perfectly smooth) and 1 (very rough)
-			//	float roughness = Utility::randomFloat(0.0f, 1.0f, rand_state);
+				// Generate a random roughness between 0 (perfectly smooth) and 1 (very rough)
+				float roughness = Utility::randomFloat(0.0f, 0.1f, rand_state);
 
-			//	// Create a new Metal material with the random albedo and roughness
-			//	int materialIndex = world->addMaterial(new Metal(albedo, roughness));
-			//}
+				// Create a new Metal material with the random albedo and roughness
+				int materialIndex = world->addMaterial(new Lambertian(albedo));
+			}
+
 			//world->add(new Sphere(Vec3(0, 1, 0), 1.0f, material1));
 
 			*objectsNum = world->m_NumObjects;
@@ -187,33 +221,52 @@ namespace CRT
 			new (mesh) Mesh(globalVertices, globalIndices, vertexCount, indexCount, vertexOffset, indexOffset, 0, d_rand_state);
 		}
 	}
+	__device__ void debugRandomDistribution(curandState* rand_state, unsigned char* image, int width, int height) {
+		int x = threadIdx.x + blockIdx.x * blockDim.x;
+		int y = threadIdx.y + blockIdx.y * blockDim.y;
+		if ((x >= width) || (y >= height)) return;
+		int pixel_index = y * width + x;
 
+		curandState local_rand_state = rand_state[pixel_index];
+		float r = curand_uniform(&local_rand_state);
+
+		float color = static_cast<float>(r * 256);
+		image[pixel_index * 4 + 0] = color;  // R
+		image[pixel_index * 4 + 1] = color;  // G
+		image[pixel_index * 4 + 2] = color;  // B
+		image[pixel_index * 4 + 3] = 255;    // A
+
+
+		rand_state[pixel_index] = local_rand_state;
+	}
 	__global__ void render(unsigned char* data, BVHNode* d_sceneRoot, HittableList* d_world, curandState* rand_state, int imageWidth, int imageHeight)
 	{
 		int x = threadIdx.x + blockIdx.x * blockDim.x;
 		int y = threadIdx.y + blockIdx.y * blockDim.y;
 		if (x >= imageWidth || y >= imageHeight) return;
 
+		//debugRandomDistribution(rand_state, data, imageWidth, imageHeight);
 		int pixel_index = y * imageWidth + x;
 		curandState local_rand_state = rand_state[pixel_index];
 
-		int data_pixel_index = (y * imageWidth + x) * 4;
+		int data_pixel_index = pixel_index * 4;
 
 		Color pixel_color(0, 0, 0);
-		for (int sample = 0; sample < d_camera.m_SamplesPerPixel; sample++) {
+		for (int sample = 0; sample < d_camera.m_SamplesPerPixel; sample++) 
+		{
 			const Ray& r = d_camera.getRay(x, y, imageWidth, imageHeight, &local_rand_state);
 			pixel_color += rayColor(r, d_sceneRoot, d_world, &local_rand_state);
 		}
 
-		rand_state[pixel_index] = local_rand_state;
 
 		writeColor(data, data_pixel_index, d_camera.m_PixelSampleScale * pixel_color);
+		rand_state[pixel_index] = local_rand_state;
 	}
 }
 
 // Global constants
 constexpr float ASPECT_RATIO = 16.0f / 9.0f;
-constexpr int WIDTH = 720;
+constexpr int WIDTH = 1440;
 constexpr int HEIGHT = static_cast<int>(WIDTH / ASPECT_RATIO) < 1 ? 1 : static_cast<int>(WIDTH / ASPECT_RATIO);
 constexpr float APERTURE = 0.0001f;
 constexpr float FOV = 90.0f;
@@ -282,6 +335,7 @@ void loadObject(const std::string& filename,
 			maxY = std::max(maxY, vertex.Position[1]);
 			maxZ = std::max(maxZ, vertex.Position[2]);
 
+			vertex.Position *= 3;
 			// Normal
 			if (index.normal_index >= 0) {
 				vertex.Normal[0] = attrib.normals[3 * index.normal_index + 0];
@@ -350,7 +404,7 @@ void initMeshes(CudaMem<CRT::Mesh>& d_meshes, CudaMem<Vertex>& d_vertices, CudaM
 	std::vector<Vertex> vertices;
 	std::vector<uint32_t> indices;
 	try {
-		loadObject("assets/models/bunny.obj", vertices, indices);
+		loadObject("assets/models/cornell-box.obj", vertices, indices);
 	}
 	catch (const std::exception& e) {
 		std::cerr << "Error loading object: " << e.what() << std::endl;
@@ -454,7 +508,7 @@ void drawFrame(WindowConfig& windowConfig, unsigned char* d_imageData)
 
 int main() {
 	try {
-		CRT::Vec3 cameraPosition(0, 4, 0);
+		CRT::Vec3 cameraPosition(0, 4, 4);
 		CRT::Vec3 cameraTarget(0, 0, 0);
 		CRT::Vec3 worldY(0, 1, 0);
 
@@ -477,7 +531,7 @@ int main() {
 		//	exit(EXIT_FAILURE);
 		//}
 		//cudaDeviceSetLimit(cudaLimitMallocHeapSize, 20000000 * sizeof(double));
-		//cudaDeviceSetLimit(cudaLimitStackSize, 12928);
+		cudaDeviceSetLimit(cudaLimitStackSize, 12928);
 		cudaDeviceGetLimit(&size_heap, cudaLimitMallocHeapSize);
 		cudaDeviceGetLimit(&size_stack, cudaLimitStackSize);
 		printf("Heap size found to be %d; Stack size found to be %d\n", (int)size_heap, (int)size_stack);

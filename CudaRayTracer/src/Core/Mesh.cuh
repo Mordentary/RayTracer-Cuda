@@ -1,7 +1,7 @@
 #pragma once
 #include "Hittable.cuh"
 #include "BVHNode.cuh"
-
+#include"AABB.cuh"
 struct Vertex
 {
 	CRT::Vec3 Position;
@@ -14,13 +14,6 @@ namespace CRT
 	class  Mesh : public Hittable
 	{
 	public:
-		__device__ Mesh()
-			: m_Vertices(nullptr), m_Indices(nullptr), m_VertexCount(0), m_IndexCount(0),
-			m_VertexOffset(0), m_IndexOffset(0), m_MaterialIndex(0)
-		{
-
-
-		}
 
 		__device__ Mesh(Vertex* globalVertices, uint32_t* globalIndices, uint32_t vertexCount, uint32_t indexCount,
 			uint32_t vertexOffset, uint32_t indexOffset, uint32_t matIndx, curandState* d_rand_state)
@@ -34,43 +27,99 @@ namespace CRT
 			m_RandState(d_rand_state)
 
 		{
-
-			Vec3 min = m_Vertices[0].Position;
-			Vec3 max = min;
-
-			for (uint32_t i = 1; i < m_VertexCount; ++i)
+			if (m_VertexCount > 0)
 			{
-				const Vec3& pos = m_Vertices[i].Position;
-				min = Vec3(fminf(min.x(), pos.x()), fminf(min.y(), pos.y()), fminf(min.z(), pos.z()));
-				max = Vec3(fmaxf(max.x(), pos.x()), fmaxf(max.y(), pos.y()), fmaxf(max.z(), pos.z()));
-			}
-
-			m_BoundingBox = AABB(min, max);
-
-		}
-
-		__device__ virtual bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override
-		{
-			bool hit_anything = false;
-			float closest_so_far = ray_t.Max;
-
-			for (int i = 0; i < m_IndexCount; i += 3)
-			{
-				const Vertex& v0 = m_Vertices[m_Indices[i] - m_VertexOffset];
-				const Vertex& v1 = m_Vertices[m_Indices[i + 1] - m_VertexOffset];
-				const Vertex& v2 = m_Vertices[m_Indices[i + 2] - m_VertexOffset];
-
-				if (rayTriangleIntersect(r, v0, v1, v2, ray_t, rec))
+				m_BoundingBox = AABB_EMPTY;
+				for (uint32_t i = 0; i < m_VertexCount; ++i)
 				{
-					hit_anything = true;
-					closest_so_far = rec.IntersectionTime;
-					ray_t.Max = closest_so_far;
+					const Vec3& pos = m_Vertices[i].Position;
+					m_BoundingBox.expand(pos);
 				}
 			}
-
-			return hit_anything;
-
+			else
+			{
+				m_BoundingBox = AABB();
+			}
+			buildBVHMesh();
 		}
+
+		__device__ virtual inline bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override
+		{
+			bool hitAnything = false;
+			float closestSoFar = ray_t.max;
+			// Traversal stack
+			uint32_t stack[MAX_STACK_SIZE]{};
+			int stackPtr = 0;
+			int nodeIdx = 0;  // Start with the root
+
+			while (true)
+			{
+				const BVHNode& node = m_MeshBVH[nodeIdx];
+				HitInfo tempRec;
+
+				if (node.m_BoundingBox.hit(r, Interval(ray_t.min, closestSoFar), tempRec))
+				{
+					if (!node.m_IsLeaf)
+					{
+						stack[stackPtr++] = node.m_Right;
+						nodeIdx = node.m_Left;
+						continue;
+					}
+
+					//// Check if this AABB hit is closer than any previous hit
+					//if (tempRec.IntersectionTime < closestSoFar)
+					//{
+					//	// Mark this as an AABB hit
+					//	tempRec.MaterialIndex = nodeIdx % 50; // Special index for AABBs
+					//	rec = tempRec;
+					//	hitAnything = true;
+					//	closestSoFar = tempRec.IntersectionTime;
+					//}
+
+					// Test intersection with triangles in this leaf node
+
+					for (int i = node.m_ObjectIndex; i < node.m_ObjectIndex + node.m_ObjectCount; i += 3)
+					{
+						const Vertex& v0 = m_Vertices[m_Indices[i]];
+						const Vertex& v1 = m_Vertices[m_Indices[i + 1]];
+						const Vertex& v2 = m_Vertices[m_Indices[i + 2]];
+
+						if (rayTriangleIntersect(r, v0, v1, v2, Interval(ray_t.min, closestSoFar), tempRec, nodeIdx))
+						{
+							hitAnything = true;
+							closestSoFar = tempRec.IntersectionTime;
+							ray_t.max = closestSoFar;
+							rec = tempRec;
+						}
+					}
+				}
+
+				if (stackPtr == 0) break;
+				nodeIdx = stack[--stackPtr];
+			}
+			return hitAnything;
+		}
+		//__device__ virtual bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override
+		//{
+		//	bool hit_anything = false;
+		//	float closest_so_far = ray_t.max;
+
+		//	for (int i = 0; i < m_IndexCount; i += 3)
+		//	{
+		//		const Vertex& v0 = m_Vertices[m_Indices[i] - m_VertexOffset];
+		//		const Vertex& v1 = m_Vertices[m_Indices[i + 1] - m_VertexOffset];
+		//		const Vertex& v2 = m_Vertices[m_Indices[i + 2] - m_VertexOffset];
+
+		//		if (rayTriangleIntersect(r, v0, v1, v2, ray_t, rec))
+		//		{
+		//			hit_anything = true;
+		//			closest_so_far = rec.IntersectionTime;
+		//			ray_t.max = closest_so_far;
+		//		}
+		//	}
+
+		//	return hit_anything;
+		//}
 
 	private:
 		Vertex* m_Vertices;
@@ -81,117 +130,189 @@ namespace CRT
 		curandState* m_RandState;
 		BVHNode* m_MeshBVH;
 	private:
-
-
-		__device__ void buildBVH()
+		__device__ float evaluateSAH(const BVHNode& node, int axis, float pos, int start, int end)
 		{
-			StackEntry stack[MAX_STACK_SIZE];
-			int stack_top = 0;
-			int next_node_index = 0;
+			AABB leftBox = AABB_EMPTY;
+			AABB rightBox = AABB_EMPTY;
+			int leftCount = 0, rightCount = 0;
 
-			// Push initial work to stack
-			stack[stack_top++] = { 0, num_objects, 0 };
-
-			while (stack_top > 0)
+			for (uint32_t i = start; i < end; i += 3)  // Assuming triangles
 			{
-				// Pop work from stack
-				StackEntry current = stack[--stack_top];
-				int start = current.start;
-				int end = current.end;
-				int node_index = current.node_index;
+				int idx = node.m_ObjectIndex + i;
+				const Vertex& v0 = m_Vertices[m_Indices[idx]];
+				const Vertex& v1 = m_Vertices[m_Indices[idx + 1]];
+				const Vertex& v2 = m_Vertices[m_Indices[idx + 2]];
 
-				new (&nodes[node_index]) BVHNode();
-				BVHNode& node = nodes[node_index];
+				// Calculate triangle centroid
+				Vec3 centroid = (v0.Position + v1.Position + v2.Position) * (1.0f / 3.0f);
 
-				int object_span = end - start;
-
-				node.m_World = objects;
-				node.m_SceneNodes = nodes;
-
-				node.m_BoundingBox = objects->m_Objects[start]->boundingBox();
-				for (int i = start + 1; i < end; i++)
-					node.m_BoundingBox = AABB(node.m_BoundingBox, objects->m_Objects[i]->boundingBox());
-
-				if (object_span == 1)
+				if (centroid[axis] < pos)
 				{
-					// Leaf node
-					node.m_ObjectIndex = start;
-					node.m_ObjectCount = 1;
-					node.m_IsLeaf = true;
-					//node.m_BoundingBox = objects->m_Objects[start]->boundingBox();
+					leftCount++;
+					leftBox.expand(AABB(v0.Position, v1.Position));
+					leftBox.expand(v2.Position);
 				}
 				else
 				{
-					//int axis = Utility::randomInt(0, 2, rand_state);
-
-					int axis = node.m_BoundingBox.longestAxis();
-
-					//if (object_span > 2)
-					//{
-					//	insertionSort(objects->m_Objects + start, object_span, axis);
-					//}
-
-					int mid = start + object_span / 2;
-
-					// Sort objects if needed
-
-					int left_child = ++next_node_index;
-					int right_child = ++next_node_index;
-
-					node.m_Left = left_child;
-					node.m_Right = right_child;
-					node.m_IsLeaf = false;
-
-					stack[stack_top++] = { mid, end, right_child };
-					stack[stack_top++] = { start, mid, left_child };
+					rightCount++;
+					rightBox.expand(AABB(v0.Position, v1.Position));
+					rightBox.expand(v2.Position);
 				}
 			}
 
+			float cost = leftCount * leftBox.area() + rightCount * rightBox.area();
+			return cost > 0 ? cost : FLT_MAX;
 		}
-		__device__ void calculateBoundingBox()
-		{
 
+		struct StackEntryMesh {
+			int start;
+			int end;
+			int node_index;
+			int parent_indices_span;
+		};
+		__device__ void buildBVHMesh() {
+			const int numTriangles = m_IndexCount / 3;
+			const int maxNodes = 2 * numTriangles - 1;
+			BVHNode* nodes = new BVHNode[maxNodes];
+			m_MeshBVH = nodes;
+
+			struct StackEntry { int start, end, nodeIndex; };
+			StackEntry stack[MAX_STACK_SIZE];
+			int stackTop = 0;
+			int nextNodeIndex = 0;
+
+			// Initialize root node
+			BVHNode& root = nodes[nextNodeIndex++];
+			root.m_BoundingBox = m_BoundingBox;
+			stack[stackTop++] = { 0, (int)m_IndexCount, 0 };
+
+			while (stackTop > 0) {
+				StackEntry current = stack[--stackTop];
+				BVHNode& node = nodes[current.nodeIndex];
+				int indicesSpan = current.end - current.start;
+
+				if (indicesSpan <= 12 || nextNodeIndex + 1 >= maxNodes) {  // 4 triangles or less
+					// Create leaf node
+					node.m_IsLeaf = true;
+					node.m_ObjectIndex = current.start;
+					node.m_ObjectCount = indicesSpan;
+					continue;
+				}
+
+				// Find best split
+				int bestAxis = -1;
+				float bestPos = 0, bestCost = FLT_MAX;
+				for (int axis = 0; axis < 3; ++axis) {
+					float minPos = FLT_MAX, maxPos = -FLT_MAX;
+					for (int i = current.start; i < current.end; i += 3) {
+						Vec3 centroid = (m_Vertices[m_Indices[i]].Position +
+							m_Vertices[m_Indices[i + 1]].Position +
+							m_Vertices[m_Indices[i + 2]].Position) * (1.0f / 3.0f);
+						minPos = minPos < centroid[axis] ? minPos : centroid[axis];
+						maxPos = maxPos > centroid[axis] ? maxPos : centroid[axis];
+					}
+					float splitPos = (minPos + maxPos) * 0.5f;
+					float cost = evaluateSAH(node, axis, splitPos, current.start, current.end);
+					if (cost < bestCost) {
+						bestAxis = axis;
+						bestPos = splitPos;
+						bestCost = cost;
+					}
+				}
+
+				int mid = current.start;
+				for (int i = current.start; i < current.end; i += 3) {
+					Vec3 centroid = (m_Vertices[m_Indices[i]].Position +
+						m_Vertices[m_Indices[i + 1]].Position +
+						m_Vertices[m_Indices[i + 2]].Position) * (1.0f / 3.0f);
+					if (centroid[bestAxis] < bestPos) {
+						swap_triplet(m_Indices[mid], m_Indices[mid + 1], m_Indices[mid + 2],
+							m_Indices[i], m_Indices[i + 1], m_Indices[i + 2]);
+						mid += 3;
+					}
+				}
+
+				// Create child nodes
+				node.m_Left = nextNodeIndex++;
+				node.m_Right = nextNodeIndex++;
+				node.m_IsLeaf = false;
+
+				// Push right child, then left child (to process left child first)
+				stack[stackTop++] = { mid, current.end, node.m_Right };
+				stack[stackTop++] = { current.start, mid, node.m_Left };
+			}
+
+			// Compute AABBs for all nodes bottom-up
+			for (int i = maxNodes - 1; i >= 0; --i) {
+				BVHNode& node = nodes[i];
+				if (node.m_IsLeaf) {
+					node.m_BoundingBox = computeTrianglesAABB(node.m_ObjectIndex, node.m_ObjectCount);
+				}
+				else {
+					node.m_BoundingBox = nodes[node.m_Left].m_BoundingBox;
+					node.m_BoundingBox.expand(nodes[node.m_Right].m_BoundingBox);
+				}
+			}
+		}
+
+		__device__ AABB computeTrianglesAABB(int start, int count) {
+			AABB box = AABB_EMPTY;
+			for (int i = start; i < start + count; i += 3) {
+				box.expand(m_Vertices[m_Indices[i]].Position);
+				box.expand(m_Vertices[m_Indices[i + 1]].Position);
+				box.expand(m_Vertices[m_Indices[i + 2]].Position);
+			}
+			return box;
+		}
+		__device__ int getApproximateLevel(int nodeIndex) const {
+			nodeIndex++; // Adjust for 0-based index
+			int level = 0;
+			while (nodeIndex > 1) {
+				nodeIndex >>= 1; // Equivalent to nodeIndex /= 2
+				level++;
+			}
+			return level;
 		}
 
 		__device__ bool rayTriangleIntersect(
-			const Ray& r, const Vertex& v0, const Vertex& v1, const Vertex& v2,
-			const Interval& ray_t, HitInfo& rec) const
+			const Ray& ray, const Vertex& v0, const Vertex& v1, const Vertex& v2,
+			const Interval& ray_t, HitInfo& rec, int nodeIndex) const
 		{
-			Vec3 e1 = v1.Position - v0.Position;
-			Vec3 e2 = v2.Position - v0.Position;
-			Vec3 h = cross(r.direction(), e2);
-			float a = dot(e1, h);
+			const float EPSILON = 1e-7f;
+			Vec3 edge1 = v1.Position - v0.Position;
+			Vec3 edge2 = v2.Position - v0.Position;
+			Vec3 h = cross(ray.direction(), edge2);
+			float a = dot(edge1, h);
 
-			if (fabs(a) < 1e-8f) return false;
+			// Check if ray is parallel to the triangle
+			if (fabs(a) < EPSILON)
+				return false;
 
 			float f = 1.0f / a;
-			Vec3 s = r.origin() - v0.Position;
+			Vec3 s = ray.origin() - v0.Position;
 			float u = f * dot(s, h);
 
-			if (u < 0.0f || u > 1.0f) return false;
+			if (u < -EPSILON || u > 1.0f + EPSILON)
+				return false;
 
-			Vec3 q = cross(s, e1);
-			float v = f * dot(r.direction(), q);
+			Vec3 q = cross(s, edge1);
+			float v = f * dot(ray.direction(), q);
 
-			if (v < 0.0f || u + v > 1.0f) return false;
+			if (v < -EPSILON || u + v > 1.0f + EPSILON)
+				return false;
 
-			float t = f * dot(e2, q);
+			float t = f * dot(edge2, q);
 
-			if (ray_t.surrounds(t))
-			{
+			if (t >= ray_t.min && t <= ray_t.max) {
 				rec.IntersectionTime = t;
-				rec.Point = r.pointAtDistance(t);
-				//rec.MaterialIndex = Utility::randomInt(3, 499, m_RandState);
-				rec.MaterialIndex = m_MaterialIndex;
-				// Interpolate normal
-				//Vec3 normal = (1 - u - v) * v0.Normal + u * v1.Normal + v * v2.Normal;
+				rec.Point = ray.pointAtDistance(t);
+				rec.MaterialIndex = 0;
 
-				Vec3 normal = cross(e1, e2);
-				rec.setFaceNormal(r, unitVector(normal));
-
-				// Interpolate texture coordinates (if needed)
-				 //rec.u = (1-u-v) * v0.UV.x() + u * v1.UV.x() + v * v2.UV.x();
-				 //rec.v = (1-u-v) * v0.UV.y() + u * v1.UV.y() + v * v2.UV.y();
+				 //Interpolate normal
+					Vec3 normal = (1 - u - v) * v0.Normal + u * v1.Normal + v * v2.Normal;
+					rec.setFaceNormal(ray, normal);
+					
+					//rec.setFaceNormal(ray, unitVector(cross(edge1, edge2)));
 
 				return true;
 			}

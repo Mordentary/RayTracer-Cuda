@@ -61,7 +61,30 @@ namespace CRT
 		__host__ __device__ Vec3& operator/=(float t) {
 			return *this *= 1 / t;
 		}
+		__host__ __device__ static Vec3 min(const Vec3& a, const Vec3& b)
+		{
+			return Vec3(fminf(a.x(), b.x()),
+				fminf(a.y(), b.y()),
+				fminf(a.z(), b.z()));
+		}
 
+		__host__ __device__ static Vec3 max(const Vec3& a, const Vec3& b)
+		{
+			return Vec3(fmaxf(a.x(), b.x()),
+				fmaxf(a.y(), b.y()),
+				fmaxf(a.z(), b.z()));
+		}
+
+		// Operator overloads for component-wise min and max
+		__host__ __device__ friend Vec3 min(const Vec3& a, const Vec3& b)
+		{
+			return Vec3::min(a, b);
+		}
+
+		__host__ __device__ friend Vec3 max(const Vec3& a, const Vec3& b)
+		{
+			return Vec3::max(a, b);
+		}
 		__host__ __device__ float length() const {
 			return sqrt(lengthSquared());
 		}
