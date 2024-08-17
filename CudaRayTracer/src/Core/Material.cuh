@@ -7,7 +7,11 @@ namespace CRT
 {
 	class Material {
 	public:
-		__device__ virtual bool Scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const = 0;
+		__device__ virtual bool scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const { return false; }
+
+		__device__ virtual Color emit() const {
+			return Color(0, 0, 0);
+		}
 		__device__ virtual ~Material() {};
 	};
 
@@ -17,7 +21,7 @@ namespace CRT
 		__device__ Lambertian(const Vec3& color) : m_Albedo(color)
 		{
 		}
-		__device__ virtual bool Scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const override
+		__device__ virtual bool scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const override
 		{
 			Vec3 scatter_direction = rec.Normal + Utility::randomUnitVector(rand_state);
 
@@ -40,7 +44,7 @@ namespace CRT
 		__device__ Metal(const Vec3& color, float roughness) : m_Albedo(color), m_Roughness(roughness < 1.f ? roughness : 1.f)
 		{
 		}
-		__device__ virtual bool Scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const override
+		__device__ virtual bool scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const override
 		{
 			Vec3 reflected = reflect(rayIn.direction(), rec.Normal);
 			reflected = unitVector(reflected) + (m_Roughness * Utility::randomUnitVector(rand_state));
@@ -60,7 +64,7 @@ namespace CRT
 		__device__ Dielectric(float ior) : m_IndexOfRefraction(ior)
 		{
 		}
-		__device__ virtual bool Scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const override
+		__device__ virtual bool scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const override
 		{
 			attenuation = Color(1.0, 1.0, 1.0);
 			float ri = rec.IsNormalOutward ? (1.0f / m_IndexOfRefraction) : m_IndexOfRefraction;
@@ -90,4 +94,17 @@ namespace CRT
 			return r0 + (1 - r0) * pow((1 - cosine), 5);
 		}
 	};
+	class DiffuseLight : public Material {
+	public:
+		__device__ DiffuseLight(const Color& emitColor) : m_EmitColor(emitColor){}
+		__device__ DiffuseLight(Color&& emit) : m_EmitColor(emit){}
+
+		__device__ Color emit() const override {
+			return m_EmitColor;
+		}
+
+	private:
+		Vec3 m_EmitColor;
+	};
+
 }

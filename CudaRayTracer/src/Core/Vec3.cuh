@@ -61,6 +61,9 @@ namespace CRT
 		__host__ __device__ Vec3& operator/=(float t) {
 			return *this *= 1 / t;
 		}
+		__host__ __device__ float maxComponent() const {
+			return fmaxf(e[0], fmaxf(e[1], e[2]));
+		}
 		__host__ __device__ static Vec3 min(const Vec3& a, const Vec3& b)
 		{
 			return Vec3(fminf(a.x(), b.x()),

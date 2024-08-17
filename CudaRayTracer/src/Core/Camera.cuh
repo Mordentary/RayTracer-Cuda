@@ -8,7 +8,7 @@
 
 namespace CRT
 {
-	__device__ static constexpr int DEFAULT_SAMPLES_PER_PIXEL = 2;
+	__device__ static constexpr int DEFAULT_SAMPLES_PER_PIXEL = 1;
 
 	class Camera
 	{
@@ -210,4 +210,6 @@ namespace CRT
 		bool m_CameraMoves, m_CameraRotates;
 		bool m_HighQualityMode;
 	};
+
+	__constant__ Camera d_camera;
 }

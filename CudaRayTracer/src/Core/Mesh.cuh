@@ -306,13 +306,13 @@ namespace CRT
 			if (t >= ray_t.min && t <= ray_t.max) {
 				rec.IntersectionTime = t;
 				rec.Point = ray.pointAtDistance(t);
-				rec.MaterialIndex = 0;
+				rec.MaterialIndex = m_MaterialIndex;
 
 				 //Interpolate normal
-					Vec3 normal = (1 - u - v) * v0.Normal + u * v1.Normal + v * v2.Normal;
-					rec.setFaceNormal(ray, normal);
+					//Vec3 normal = (1 - u - v) * v0.Normal + u * v1.Normal + v * v2.Normal;
+					//rec.setFaceNormal(ray, (normal));
 					
-					//rec.setFaceNormal(ray, unitVector(cross(edge1, edge2)));
+					rec.setFaceNormal(ray, unitVector(cross(edge1, edge2)));
 
 				return true;
 			}
