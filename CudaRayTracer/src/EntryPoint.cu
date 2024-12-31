@@ -6,12 +6,10 @@
 #include <device_launch_parameters.h>
 #include <curand_kernel.h>
 
-
 #include "Raytracer.h"
 #include "CUDAHelpers.h"
 #include "SceneManager.h"
 #include "WindowManager.h"
-
 
 int main() {
 	try {
@@ -21,7 +19,7 @@ int main() {
 		constexpr float VERTICAL_FOV = 70.0f;
 		constexpr float APERTURE = 0.0001f;
 
-		// Increase memory limits
+		//Increase memory limits
 		//size_t heapSize = 20000000 * sizeof(double) * 4;
 		//size_t stackSize = 12928;
 		//CUDA_CHECK(cudaDeviceSetLimit(cudaLimitMallocHeapSize, heapSize));

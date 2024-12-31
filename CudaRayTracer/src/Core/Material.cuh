@@ -5,6 +5,47 @@
 
 namespace CRT
 {
+	enum class MaterialType : int
+	{
+		Lambertian,
+		Metal,
+		Dielectric,
+		DiffuseLight
+	};
+
+	class MaterialData
+	{
+	public:
+		__host__ MaterialData()
+			: m_Type(MaterialType::Lambertian)
+			, m_Albedo(0.f)
+			, m_Emission(0.f)
+			, m_Roughness(0.f)
+			, m_IOR(1.f)
+		{
+		}
+
+		__host__ MaterialData(MaterialType type, const CRT::Vec3& albedo,
+			float roughness, float ior, const CRT::Vec3& emission)
+			: m_Type(type), m_Albedo(albedo), m_Emission(emission),
+			m_Roughness(roughness), m_IOR(ior)
+		{
+		}
+
+		__device__ MaterialType getType() const { return m_Type; }
+		__device__ CRT::Vec3 getAlbedo() const { return m_Albedo; }
+		__device__ CRT::Vec3 getEmission() const { return m_Emission; }
+		__device__ float getRoughness() const { return m_Roughness; }
+		__device__ float getIOR() const { return m_IOR; }
+
+	private:
+		MaterialType m_Type;
+		CRT::Vec3    m_Albedo;
+		CRT::Vec3    m_Emission;
+		float        m_Roughness;
+		float        m_IOR;
+	};
+
 	class Material {
 	public:
 		__device__ virtual bool scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const { return false; }
@@ -12,13 +53,14 @@ namespace CRT
 		__device__ virtual Color emit() const {
 			return Color(0, 0, 0);
 		}
-		__device__ virtual ~Material() {};
+
+		__host__ __device__ virtual ~Material() {};
 	};
 
 	class Lambertian : public Material
 	{
 	public:
-		__device__ Lambertian(const Vec3& color) : m_Albedo(color)
+		__host__ __device__ Lambertian(const Vec3& color) : m_Albedo(color)
 		{
 		}
 		__device__ virtual bool scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const override
@@ -41,7 +83,7 @@ namespace CRT
 	class Metal : public Material
 	{
 	public:
-		__device__ Metal(const Vec3& color, float roughness) : m_Albedo(color), m_Roughness(roughness < 1.f ? roughness : 1.f)
+		__host__ __device__ Metal(const Vec3& color, float roughness) : m_Albedo(color), m_Roughness(roughness < 1.f ? roughness : 1.f)
 		{
 		}
 		__device__ virtual bool scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const override
@@ -61,7 +103,7 @@ namespace CRT
 	class Dielectric : public Material
 	{
 	public:
-		__device__ Dielectric(float ior) : m_IndexOfRefraction(ior)
+		__host__ __device__ Dielectric(float ior) : m_IndexOfRefraction(ior)
 		{
 		}
 		__device__ virtual bool scatter(const Ray& rayIn, const HitInfo& rec, Color& attenuation, Ray& scattered, curandState* rand_state) const override
@@ -96,8 +138,8 @@ namespace CRT
 	};
 	class DiffuseLight : public Material {
 	public:
-		__device__ DiffuseLight(const Color& emitColor) : m_EmitColor(emitColor){}
-		__device__ DiffuseLight(Color&& emit) : m_EmitColor(emit){}
+		__host__ __device__ DiffuseLight(const Color& emitColor) : m_EmitColor(emitColor) {}
+		__host__ __device__ DiffuseLight(Color&& emit) : m_EmitColor(emit) {}
 
 		__device__ Color emit() const override {
 			return m_EmitColor;
@@ -106,5 +148,4 @@ namespace CRT
 	private:
 		Vec3 m_EmitColor;
 	};
-
 }

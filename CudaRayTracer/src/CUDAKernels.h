@@ -25,14 +25,43 @@ namespace CUDAKernels {
 		curand_init(seed, pixel_index, 0, &rand_state[pixel_index]);
 	}
 
-	__global__ void createRandomWorld(CRT::HittableList* world, CRT::Mesh* meshes, int numMeshes, int* materialIndices, int* objectsNum, curandState* rand_state) {
+	__device__ void createMaterialsKernel(CRT::HittableList* world,
+		const CRT::MaterialData* dMatData,
+		int matCount)
+	{
+		if (threadIdx.x == 0 && blockIdx.x == 0) {
+			for (int i = 0; i < matCount; i++) {
+				CRT::MaterialType t = dMatData[i].getType();
+				CRT::Material* matPtr = nullptr;
+
+				if (t == CRT::MaterialType::Lambertian) {
+					matPtr = new CRT::Lambertian(dMatData[i].getAlbedo());
+				}
+				else if (t == CRT::MaterialType::Metal) {
+					matPtr = new CRT::Metal(dMatData[i].getAlbedo(),
+						dMatData[i].getRoughness());
+				}
+				else if (t == CRT::MaterialType::Dielectric) {
+					matPtr = new CRT::Dielectric(dMatData[i].getIOR());
+				}
+				else if (t == CRT::MaterialType::DiffuseLight) {
+					matPtr = new CRT::DiffuseLight(dMatData[i].getEmission());
+				}
+
+				world->addMaterial(matPtr);
+			}
+		}
+	}
+
+	__global__ void createRandomWorld(CRT::HittableList* world, CRT::Mesh* meshes, int numMeshes, CRT::MaterialData* materialsData, int materialsNum, int* objectsNum, curandState* rand_state) {
 		if (threadIdx.x == 0 && blockIdx.x == 0) {
 			new (world) CRT::HittableList();
 
 			//world->addMaterial(new CRT::DiffuseLight(CRT::Color(0.3, 0.1, 0.1)));
 
-			 // Add all meshes to the world
-			for (int i = 0; i < numMeshes; ++i) 
+			createMaterialsKernel(world, materialsData, materialsNum);
+			// Add all meshes to the world
+			for (int i = 0; i < numMeshes; ++i)
 			{
 				world->add(&meshes[i]);
 			}
@@ -40,11 +69,8 @@ namespace CUDAKernels {
 			int ground_material_index = world->addMaterial(new CRT::Lambertian(CRT::Color(0.5, 0.5, 0.5)));
 			world->add(new CRT::Sphere(CRT::Vec3(0, -1000, 0), 999, ground_material_index));
 
-			int material2 = world->addMaterial(new CRT::Lambertian(CRT::Color(0.4, 0.2, 0.1)));
-			world->add(new CRT::Sphere(CRT::Vec3(-4, 3, 0), 0.5f, material2));
-
 			int material3 = world->addMaterial(new CRT::Metal(CRT::Color(0.7, 0.6, 0.5), 0.0f));
-			world->add(new CRT::Sphere(CRT::Vec3(4, 1, 0), 1.0f, material3));
+			world->add(new CRT::Sphere(CRT::Vec3(0.3, 1, 0), 0.2f, material3));
 
 			//for (int i = 0; i < world->s_MAX_MATERIALS; i++) {
 			//	CRT::Color albedo = CRT::Utility::randomVector(0.2f, 1.0f, rand_state);
@@ -63,13 +89,13 @@ namespace CUDAKernels {
 		}
 	}
 
-	__global__ void initMesh(CRT::Mesh* mesh, Vertex* globalVertices, uint32_t* globalIndices,
+	__global__ void initMesh(CRT::Mesh* mesh, Vertex* globalVertices, uint32_t* globalIndices, int* globalFaceMatIndices,
 		uint32_t vertexCount, uint32_t indexCount,
-		uint32_t vertexOffset, uint32_t indexOffset, int materialIndex, curandState* d_rand_state)
+		uint32_t vertexOffset, uint32_t indexOffset, uint32_t faceMatOffset, curandState* d_rand_state)
 	{
 		if (threadIdx.x == 0 && blockIdx.x == 0) {
-			new (mesh) CRT::Mesh(globalVertices, globalIndices,
-				vertexCount, indexCount, vertexOffset, indexOffset, materialIndex, d_rand_state);
+			new (mesh) CRT::Mesh(globalVertices, globalIndices, globalFaceMatIndices,
+				vertexCount, indexCount, vertexOffset, indexOffset, faceMatOffset, d_rand_state);
 		}
 	}
 

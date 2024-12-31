@@ -12,7 +12,7 @@
 struct MeshData {
 	std::vector<Vertex> vertices;
 	std::vector<uint32_t> indices;
-	std::string materialName;
+	std::vector<int> faceMaterialIds;
 };
 
 class SceneManager {
@@ -30,25 +30,29 @@ private:
 
 	int m_Width;
 	int m_Height;
+
+	// Device pointers
 	int* m_dObjectsNum;
 	CRT::HittableList* m_dWorld = nullptr;
 	CRT::BVHNode* m_dBVHNodes = nullptr;
-
 	CRT::Mesh* m_dMeshes = nullptr;
 	Vertex* m_dVertices = nullptr;
 	uint32_t* m_dIndices = nullptr;
+	int* m_dFaceMaterialIds = nullptr;
 
-	// New members for multiple meshes and materials
+	// Per-mesh offsets
 	std::vector<uint32_t> m_VertexOffsets;
 	std::vector<uint32_t> m_IndexOffsets;
 	std::vector<uint32_t> m_VertexCounts;
 	std::vector<uint32_t> m_IndexCounts;
-	//std::vector<int> m_MaterialIndices;
+	std::vector<uint32_t> m_FaceMatOffsets;
+	std::vector<uint32_t> m_FaceCounts;     // how many faces in each mesh
+
 	int m_NumMeshes;
 
-	//// Material management
-	//std::unordered_map<std::string, int> m_MaterialMap;
-	//std::vector<CRT::Material*> m_Materials;
+	// Materials
+	CRT::MaterialData* m_dMaterialsData = nullptr; // array of all MaterialData on device
+	std::vector<CRT::MaterialData> m_SceneMaterialsData; // host side
 };
 
 // Implementation
@@ -65,16 +69,22 @@ SceneManager::~SceneManager() {
 	CUDA_CHECK(cudaFree(m_dMeshes));
 	CUDA_CHECK(cudaFree(m_dVertices));
 	CUDA_CHECK(cudaFree(m_dIndices));
-
-	//for (auto material : m_Materials) {
-	//	delete material;
-	//}
+	CUDA_CHECK(cudaFree(m_dFaceMaterialIds));
+	cudaFree(m_dMaterialsData);
 }
 
 void SceneManager::initializeScene(const CUDAHelpers::RenderConfig& renderConfig, curandState* dRandState) {
 	initMeshes(dRandState);
 
-	CUDAKernels::createRandomWorld CUDA_KERNEL(1, 1) (m_dWorld, m_dMeshes, m_NumMeshes, nullptr, m_dObjectsNum, dRandState);
+	if (!m_SceneMaterialsData.empty()) {
+		cudaMalloc(&m_dMaterialsData, sizeof(CRT::MaterialData) * m_SceneMaterialsData.size());
+		cudaMemcpy(m_dMaterialsData,
+			m_SceneMaterialsData.data(),
+			sizeof(CRT::MaterialData) * m_SceneMaterialsData.size(),
+			cudaMemcpyHostToDevice);
+	}
+
+	CUDAKernels::createRandomWorld CUDA_KERNEL(1, 1) (m_dWorld, m_dMeshes, m_NumMeshes, m_dMaterialsData, (int)m_SceneMaterialsData.size(), m_dObjectsNum, dRandState);
 	CUDA_CHECK(cudaGetLastError());
 	CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -87,113 +97,207 @@ void SceneManager::initializeScene(const CUDAHelpers::RenderConfig& renderConfig
 }
 
 void SceneManager::initMeshes(curandState* dRandState) {
-	std::vector<std::string> modelFiles = { "assets/models/bunny.obj" , "assets/models/cornell-box.obj" };
-		std::vector<MeshData> allMeshData;
-
-	for (const auto& file : modelFiles)
-	{
+	std::vector<std::string> modelFiles = {
+	"assets/models/CornellBox-Original.obj",
+		"assets/models/bunny.obj" };
+	std::vector<MeshData> allMeshData;
+	for (const auto& file : modelFiles) {
 		loadObject(file, allMeshData);
 	}
 
-	m_NumMeshes = allMeshData.size();
-	std::vector<Vertex> allVertices;
+	m_NumMeshes = (int)allMeshData.size();
+
+	std::vector<Vertex>   allVertices;
 	std::vector<uint32_t> allIndices;
+	std::vector<int>      allFaceMatIds;
 
-	for (const auto& meshData : allMeshData) {
-		m_VertexOffsets.push_back(allVertices.size());
-		m_IndexOffsets.push_back(allIndices.size());
-		m_VertexCounts.push_back(meshData.vertices.size());
-		m_IndexCounts.push_back(meshData.indices.size());
+	// Reserve
+	m_VertexOffsets.resize(m_NumMeshes);
+	m_IndexOffsets.resize(m_NumMeshes);
+	m_VertexCounts.resize(m_NumMeshes);
+	m_IndexCounts.resize(m_NumMeshes);
+	m_FaceMatOffsets.resize(m_NumMeshes);
+	m_FaceCounts.resize(m_NumMeshes);
 
-		allVertices.insert(allVertices.end(), meshData.vertices.begin(), meshData.vertices.end());
-		allIndices.insert(allIndices.end(), meshData.indices.begin(), meshData.indices.end());
+	for (int i = 0; i < m_NumMeshes; i++) {
+		MeshData& md = allMeshData[i];
+
+		uint32_t baseVertex = static_cast<uint32_t>(allVertices.size());
+		uint32_t baseIndex = static_cast<uint32_t>(allIndices.size());
+		uint32_t baseFaceMat = static_cast<uint32_t>(allFaceMatIds.size());
+
+		m_VertexOffsets[i] = baseVertex;
+		m_IndexOffsets[i] = baseIndex;
+		m_FaceMatOffsets[i] = baseFaceMat;
+
+		// Insert the mesh’s vertices
+		allVertices.insert(allVertices.end(), md.vertices.begin(), md.vertices.end());
+		allIndices.insert(allIndices.end(), md.indices.begin(), md.indices.end());
+
+		allFaceMatIds.insert(allFaceMatIds.end(),
+			md.faceMaterialIds.begin(),
+			md.faceMaterialIds.end());
+
+		m_VertexCounts[i] = (uint32_t)md.vertices.size();
+		m_IndexCounts[i] = (uint32_t)md.indices.size();
+		m_FaceCounts[i] = (uint32_t)md.faceMaterialIds.size();
 	}
 
-	CUDA_CHECK(cudaMalloc(&m_dVertices, allVertices.size() * sizeof(Vertex)));
-	CUDA_CHECK(cudaMalloc(&m_dIndices, allIndices.size() * sizeof(uint32_t)));
+	// Allocate GPU arrays
+	cudaMalloc(&m_dVertices, allVertices.size() * sizeof(Vertex));
+	cudaMalloc(&m_dIndices, allIndices.size() * sizeof(uint32_t));
+	cudaMalloc(&m_dFaceMaterialIds, allFaceMatIds.size() * sizeof(int));
+
+	cudaMemcpy(m_dVertices, allVertices.data(),
+		allVertices.size() * sizeof(Vertex),
+		cudaMemcpyHostToDevice);
+
+	cudaMemcpy(m_dIndices, allIndices.data(),
+		allIndices.size() * sizeof(uint32_t),
+		cudaMemcpyHostToDevice);
+
+	cudaMemcpy(m_dFaceMaterialIds, allFaceMatIds.data(),
+		allFaceMatIds.size() * sizeof(int),
+		cudaMemcpyHostToDevice);
+
 	CUDA_CHECK(cudaMalloc(&m_dMeshes, m_NumMeshes * sizeof(CRT::Mesh)));
+	// For each mesh, call initMesh
+	for (int i = 0; i < m_NumMeshes; i++) {
+		uint32_t vCount = m_VertexCounts[i];
+		uint32_t iCount = m_IndexCounts[i];
+		uint32_t vOffset = m_VertexOffsets[i];
+		uint32_t iOffset = m_IndexOffsets[i];
 
-	CUDA_CHECK(cudaMemcpy(m_dVertices, allVertices.data(), allVertices.size() * sizeof(Vertex), cudaMemcpyHostToDevice));
-	CUDA_CHECK(cudaMemcpy(m_dIndices, allIndices.data(), allIndices.size() * sizeof(uint32_t), cudaMemcpyHostToDevice));
+		// faceCount = iCount/3 if each face is exactly 3 indices
+		// but we also stored the faceMaterialIds
+		uint32_t faceMatOffset = m_FaceMatOffsets[i];
 
-	for (int i = 0; i < m_NumMeshes; ++i)
-	{
-		CUDAKernels::initMesh CUDA_KERNEL(1, 1) (m_dMeshes + i, m_dVertices, m_dIndices,
-			m_VertexCounts[i], m_IndexCounts[i], m_VertexOffsets[i], m_IndexOffsets[i], 0, dRandState);
+		// Kernel call
+		CUDAKernels::initMesh CUDA_KERNEL(1, 1) (
+			m_dMeshes + i,
+			m_dVertices,
+			m_dIndices,
+			m_dFaceMaterialIds,
+			vCount,
+			iCount,
+			vOffset,
+			iOffset,
+			faceMatOffset,
+			dRandState
+			);
 		CUDA_CHECK(cudaGetLastError());
 		CUDA_CHECK(cudaDeviceSynchronize());
 	}
 }
 
 void SceneManager::loadObject(const std::string& filename, std::vector<MeshData>& meshDataList) {
+	// 1. Load OBJ using TinyObj
 	tinyobj::attrib_t attrib;
 	std::vector<tinyobj::shape_t> shapes;
 	std::vector<tinyobj::material_t> materials;
+
 	std::string warn, err;
-
-	bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, filename.c_str());
-
-	materials.data()->
-
-	if (!err.empty()) {
-		std::cerr << "TinyObjLoader error: " << err << std::endl;
+	size_t last_slash_idx = filename.find_last_of("/\\");
+	std::string base_dir;
+	if (last_slash_idx != std::string::npos) {
+		base_dir = filename.substr(0, last_slash_idx + 1); // Include the slash
+	}
+	else {
+		base_dir = "./"; // Current directory if no path is found
 	}
 
-	if (!ret) {
-		throw std::runtime_error("Failed to load object file");
+	// Load the OBJ file
+	bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, filename.c_str(), base_dir.c_str());
+	if (!warn.empty()) std::cerr << "TinyObjLoader warning: " << warn << std::endl;
+	if (!err.empty())  std::cerr << "TinyObjLoader error:   " << err << std::endl;
+	if (!ret) throw std::runtime_error("Failed to load object: " + filename);
+
+	size_t baseMatIndex = materials.size();
+	// For each tinyobj material, build a MaterialData
+	for (size_t i = 0; i < materials.size(); i++) {
+		const auto& mat = materials[i];
+		CRT::MaterialType mt = CRT::MaterialType::Lambertian;
+		if (mat.emission[0] > 0.f || mat.emission[1] > 0.f || mat.emission[2] > 0.f) {
+			mt = CRT::MaterialType::DiffuseLight;
+		}
+		else if (mat.dissolve < 1.f) {
+			mt = CRT::MaterialType::Dielectric;
+		}
+		else if (mat.specular[0] > 0.f) {
+			mt = CRT::MaterialType::Metal;
+		}
+		float r = 0.f;
+		if (mt == CRT::MaterialType::Metal) {
+			if (mat.roughness > 0.f) r = mat.roughness;
+			else r = sqrtf(2.f / (mat.shininess + 2.f));
+		}
+		float ior = (mt == CRT::MaterialType::Dielectric ? mat.ior : 1.f);
+
+		CRT::MaterialData mdata(mt,
+			CRT::Vec3(mat.diffuse[0], mat.diffuse[1], mat.diffuse[2]),
+			r,
+			ior,
+			CRT::Vec3(mat.emission[0], mat.emission[1], mat.emission[2]));
+		m_SceneMaterialsData.push_back(mdata);
 	}
 
-	std::unordered_map<std::string, uint32_t> uniqueVertices;
-
+	// For each shape, create one MeshData
 	MeshData meshData;
-	// Process each shape in the model
+	std::unordered_map<std::string, uint32_t> uniqueVerts;
 	for (const auto& shape : shapes) {
-		// Process all vertices and indices for this shape
-		for (const auto& index : shape.mesh.indices) {
-			Vertex vertex;
-			vertex.Position = {
-				attrib.vertices[3 * index.vertex_index + 0],
-				attrib.vertices[3 * index.vertex_index + 1],
-				attrib.vertices[3 * index.vertex_index + 2]
-			};
+		meshData.vertices.resize(attrib.vertices.size());
 
-			if (index.normal_index >= 0) {
-				vertex.Normal = {
-					attrib.normals[3 * index.normal_index + 0],
-					attrib.normals[3 * index.normal_index + 1],
-					attrib.normals[3 * index.normal_index + 2]
-				};
+		size_t indexOffset = 0;
+		for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
+			int faceVerts = shape.mesh.num_face_vertices[f]; // should be 3
+
+			int faceMatId = 0;
+			if (f < shape.mesh.material_ids.size()) {
+				faceMatId = shape.mesh.material_ids[f];
+				if (faceMatId < 0 || faceMatId >= static_cast<int>(m_SceneMaterialsData.size())) {
+					faceMatId = 0;
+				}
 			}
+			meshData.faceMaterialIds.push_back(faceMatId);
 
-			if (index.texcoord_index >= 0) {
-				vertex.UV = {
-					attrib.texcoords[2 * index.texcoord_index + 0],
-					attrib.texcoords[2 * index.texcoord_index + 1]
-				};
+			for (int v = 0; v < faceVerts; v++) {
+				tinyobj::index_t idx = shape.mesh.indices[indexOffset + v];
+
+				Vertex vertex{};
+				// Position
+				vertex.Position = CRT::Vec3(
+					attrib.vertices[3 * idx.vertex_index + 0],
+					attrib.vertices[3 * idx.vertex_index + 1],
+					attrib.vertices[3 * idx.vertex_index + 2]
+				);
+
+				// Normal
+				if (idx.normal_index >= 0) {
+					vertex.Normal = CRT::Vec3(
+						attrib.normals[3 * idx.normal_index + 0],
+						attrib.normals[3 * idx.normal_index + 1],
+						attrib.normals[3 * idx.normal_index + 2]
+					);
+				}
+				else {
+					vertex.Normal = CRT::Vec3(0.f);
+				}
+
+				// UV
+				if (idx.texcoord_index >= 0) {
+					vertex.UV.e[0] = attrib.texcoords[2 * idx.texcoord_index + 0];
+					vertex.UV.e[1] = attrib.texcoords[2 * idx.texcoord_index + 1];
+				}
+				else {
+					vertex.UV = CRT::Vec2(0.f);
+				}
+				meshData.indices.push_back(idx.vertex_index);
+				meshData.vertices[idx.vertex_index] = std::move(vertex);
 			}
-
-			// Create a unique string key for the vertex
-			std::string key = std::to_string(vertex.Position.x()) + "," +
-				std::to_string(vertex.Position.y()) + "," +
-				std::to_string(vertex.Position.z()) + "," +
-				std::to_string(vertex.Normal.x()) + "," +
-				std::to_string(vertex.Normal.y()) + "," +
-				std::to_string(vertex.Normal.z()) + "," +
-				std::to_string(vertex.UV.x()) + "," +
-				std::to_string(vertex.UV.y());
-
-			if (uniqueVertices.count(key) == 0) {
-				// If this is a new unique vertex, add it to the list
-				uniqueVertices[key] = static_cast<uint32_t>(meshData.vertices.size());
-				meshData.vertices.push_back(vertex);
-			}
-
-			// Add the index
-			meshData.indices.push_back(uniqueVertices[key]);
+			indexOffset += faceVerts;
 		}
 	}
 	meshDataList.push_back(meshData);
-
 
 	// Calculate bounding box and normalize
 	CRT::Vec3 minBounds(std::numeric_limits<float>::max());
@@ -207,15 +311,14 @@ void SceneManager::loadObject(const std::string& filename, std::vector<MeshData>
 	}
 
 	CRT::Vec3 center = (minBounds + maxBounds) * 0.5f;
-	float scale = 2.0f / (maxBounds - minBounds).maxComponent();
+	float scale = 0.6f / (maxBounds - minBounds).maxComponent();
 
 	for (auto& meshData : meshDataList) {
 		for (auto& vertex : meshData.vertices) {
 			vertex.Position = (vertex.Position - center) * scale;
 		}
 	}
-
-	std::cout << "Loaded " << meshDataList.size() << " shapes with "
-		<< meshData.vertices.size() << " unique vertices and "
-		<< meshData.indices.size() << " indices from " << filename << std::endl;
+	//std::cout << "Loaded " << meshDataList.size() << " shapes with "
+	//	<< meshData.vertices.size() << " unique vertices and "
+	//	<< meshData.indices.size() << " indices from " << filename << std::endl;
 }

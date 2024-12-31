@@ -15,17 +15,24 @@ namespace CRT
 	{
 	public:
 
-		__device__ Mesh(Vertex* globalVertices, uint32_t* globalIndices, uint32_t vertexCount, uint32_t indexCount,
-			uint32_t vertexOffset, uint32_t indexOffset, uint32_t matIndx, curandState* d_rand_state)
+		__device__ Mesh(Vertex* globalVertices,
+			uint32_t* globalIndices,
+			int* globalFaceMaterialIds,
+			uint32_t  vertexCount,
+			uint32_t  indexCount,
+			uint32_t  vertexOffset,
+			uint32_t  indexOffset,
+			uint32_t  faceMatOffset,
+			curandState* d_rand_state)
 			: m_Vertices(globalVertices + vertexOffset),
 			m_Indices(globalIndices + indexOffset),
+			m_FaceMaterialIds(globalFaceMaterialIds + faceMatOffset),
 			m_VertexCount(vertexCount),
 			m_IndexCount(indexCount),
 			m_VertexOffset(vertexOffset),
 			m_IndexOffset(indexOffset),
-			m_MaterialIndex(matIndx),
+			m_FaceMatOffset(faceMatOffset),
 			m_RandState(d_rand_state)
-
 		{
 			if (m_VertexCount > 0)
 			{
@@ -70,7 +77,7 @@ namespace CRT
 					//if (tempRec.IntersectionTime < closestSoFar)
 					//{
 					//	// Mark this as an AABB hit
-					//	tempRec.MaterialIndex = nodeIdx % 50; // Special index for AABBs
+					//	tempRec.MaterialIndex = 1;
 					//	rec = tempRec;
 					//	hitAnything = true;
 					//	closestSoFar = tempRec.IntersectionTime;
@@ -84,7 +91,7 @@ namespace CRT
 						const Vertex& v1 = m_Vertices[m_Indices[i + 1]];
 						const Vertex& v2 = m_Vertices[m_Indices[i + 2]];
 
-						if (rayTriangleIntersect(r, v0, v1, v2, Interval(ray_t.min, closestSoFar), tempRec, nodeIdx))
+						if (rayTriangleIntersect(r, v0, v1, v2, Interval(ray_t.min, closestSoFar), tempRec, i))
 						{
 							hitAnything = true;
 							closestSoFar = tempRec.IntersectionTime;
@@ -99,225 +106,203 @@ namespace CRT
 			}
 			return hitAnything;
 		}
-		//__device__ virtual bool hit(const Ray& r, Interval ray_t, HitInfo& rec) const override
-		//{
-		//	bool hit_anything = false;
-		//	float closest_so_far = ray_t.max;
-
-		//	for (int i = 0; i < m_IndexCount; i += 3)
-		//	{
-		//		const Vertex& v0 = m_Vertices[m_Indices[i] - m_VertexOffset];
-		//		const Vertex& v1 = m_Vertices[m_Indices[i + 1] - m_VertexOffset];
-		//		const Vertex& v2 = m_Vertices[m_Indices[i + 2] - m_VertexOffset];
-
-		//		if (rayTriangleIntersect(r, v0, v1, v2, ray_t, rec))
-		//		{
-		//			hit_anything = true;
-		//			closest_so_far = rec.IntersectionTime;
-		//			ray_t.max = closest_so_far;
-		//		}
-		//	}
-
-		//	return hit_anything;
-		//}
 
 	private:
 		Vertex* m_Vertices;
 		uint32_t* m_Indices;
+		int* m_FaceMaterialIds;
 		uint32_t m_VertexCount, m_IndexCount;
-		uint32_t m_VertexOffset, m_IndexOffset;
-		uint32_t m_MaterialIndex;
+		uint32_t m_VertexOffset, m_IndexOffset, m_FaceMatOffset;
 		curandState* m_RandState;
 		BVHNode* m_MeshBVH;
 	private:
-		__device__ float evaluateSAH(const BVHNode& node, int axis, float pos, int start, int end)
-		{
-			AABB leftBox = AABB_EMPTY;
-			AABB rightBox = AABB_EMPTY;
-			int leftCount = 0, rightCount = 0;
-
-			for (uint32_t i = start; i < end; i += 3)  // Assuming triangles
-			{
-				int idx = node.m_ObjectIndex + i;
-				const Vertex& v0 = m_Vertices[m_Indices[idx]];
-				const Vertex& v1 = m_Vertices[m_Indices[idx + 1]];
-				const Vertex& v2 = m_Vertices[m_Indices[idx + 2]];
-
-				// Calculate triangle centroid
-				Vec3 centroid = (v0.Position + v1.Position + v2.Position) * (1.0f / 3.0f);
-
-				if (centroid[axis] < pos)
-				{
-					leftCount++;
-					leftBox.expand(AABB(v0.Position, v1.Position));
-					leftBox.expand(v2.Position);
-				}
-				else
-				{
-					rightCount++;
-					rightBox.expand(AABB(v0.Position, v1.Position));
-					rightBox.expand(v2.Position);
-				}
-			}
-
-			float cost = leftCount * leftBox.area() + rightCount * rightBox.area();
-			return cost > 0 ? cost : FLT_MAX;
-		}
-
-		struct StackEntryMesh {
-			int start;
-			int end;
-			int node_index;
-			int parent_indices_span;
-		};
 		__device__ void buildBVHMesh() {
-			const int numTriangles = m_IndexCount / 3;
-			const int maxNodes = 2 * numTriangles - 1;
-			BVHNode* nodes = new BVHNode[maxNodes];
-			m_MeshBVH = nodes;
+			int numTriangles = m_IndexCount / 3;
+			int maxNodes = 2 * numTriangles - 1;
+			m_MeshBVH = new BVHNode[maxNodes]; // Freed when ~HittableList or ~Mesh is called
 
+			// Basic stack-based approach
 			struct StackEntry { int start, end, nodeIndex; };
 			StackEntry stack[MAX_STACK_SIZE];
-			int stackTop = 0;
-			int nextNodeIndex = 0;
+			int stackTop = 0, nextNodeIndex = 0;
 
-			// Initialize root node
-			BVHNode& root = nodes[nextNodeIndex++];
-			root.m_BoundingBox = m_BoundingBox;
+			// Root node
+			BVHNode& root = m_MeshBVH[nextNodeIndex++];
+			root.m_BoundingBox = m_BoundingBox; // full box
+			root.m_ObjectIndex = 0;
+			root.m_ObjectCount = m_IndexCount; // all indices
+			root.m_IsLeaf = false;
+
 			stack[stackTop++] = { 0, (int)m_IndexCount, 0 };
 
 			while (stackTop > 0) {
-				StackEntry current = stack[--stackTop];
-				BVHNode& node = nodes[current.nodeIndex];
-				int indicesSpan = current.end - current.start;
+				StackEntry cur = stack[--stackTop];
+				int start = cur.start;
+				int end = cur.end;
+				int nodeIdx = cur.nodeIndex;
 
-				if (indicesSpan <= 12 || nextNodeIndex + 1 >= maxNodes) {  // 4 triangles or less
-					// Create leaf node
+				BVHNode& node = m_MeshBVH[nodeIdx];
+				int span = end - start;
+				if (span <= 24 || (nextNodeIndex + 1) >= maxNodes) {
+					// Leaf (3 triangles or fewer)
 					node.m_IsLeaf = true;
-					node.m_ObjectIndex = current.start;
-					node.m_ObjectCount = indicesSpan;
+					node.m_ObjectIndex = start;
+					node.m_ObjectCount = span;
+					// set bounding box precisely
+					node.m_BoundingBox = computeTrianglesAABB(start, span);
 					continue;
 				}
 
-				// Find best split
-				int bestAxis = -1;
-				float bestPos = 0, bestCost = FLT_MAX;
-				for (int axis = 0; axis < 3; ++axis) {
-					float minPos = FLT_MAX, maxPos = -FLT_MAX;
-					for (int i = current.start; i < current.end; i += 3) {
-						Vec3 centroid = (m_Vertices[m_Indices[i]].Position +
-							m_Vertices[m_Indices[i + 1]].Position +
-							m_Vertices[m_Indices[i + 2]].Position) * (1.0f / 3.0f);
-						minPos = minPos < centroid[axis] ? minPos : centroid[axis];
-						maxPos = maxPos > centroid[axis] ? maxPos : centroid[axis];
+				// find best axis & split
+				int bestAxis = 0;
+				float bestPos = 0.f;
+				float bestCost = 1e30f;
+
+				// Compute axis bounding
+				for (int axis = 0; axis < 3; axis++) {
+					float minPos = 1e30f;
+					float maxPos = -1e30f;
+					for (int i = start; i < end; i += 3) {
+						CRT::Vec3 c = triangleCentroid(i);
+						if (c[axis] < minPos) minPos = c[axis];
+						if (c[axis] > maxPos) maxPos = c[axis];
 					}
-					float splitPos = (minPos + maxPos) * 0.5f;
-					float cost = evaluateSAH(node, axis, splitPos, current.start, current.end);
+					float midPos = 0.5f * (minPos + maxPos);
+					float cost = evaluateSAH(node, axis, midPos, start, end);
 					if (cost < bestCost) {
-						bestAxis = axis;
-						bestPos = splitPos;
 						bestCost = cost;
+						bestAxis = axis;
+						bestPos = midPos;
 					}
 				}
 
-				int mid = current.start;
-				for (int i = current.start; i < current.end; i += 3) {
-					Vec3 centroid = (m_Vertices[m_Indices[i]].Position +
-						m_Vertices[m_Indices[i + 1]].Position +
-						m_Vertices[m_Indices[i + 2]].Position) * (1.0f / 3.0f);
-					if (centroid[bestAxis] < bestPos) {
+				// partition
+				int mid = start;
+				for (int i = start; i < end; i += 3) {
+					CRT::Vec3 c = triangleCentroid(i);
+					if (c[bestAxis] < bestPos) {
+						// swap triangles in m_Indices
 						swap_triplet(m_Indices[mid], m_Indices[mid + 1], m_Indices[mid + 2],
 							m_Indices[i], m_Indices[i + 1], m_Indices[i + 2]);
+						// also swap faceMaterialIds
+						int faceLeft = mid / 3;
+						int faceRight = i / 3;
+						int tmp = m_FaceMaterialIds[faceLeft];
+						m_FaceMaterialIds[faceLeft] = m_FaceMaterialIds[faceRight];
+						m_FaceMaterialIds[faceRight] = tmp;
+
 						mid += 3;
 					}
 				}
 
-				// Create child nodes
+				// create child nodes
 				node.m_Left = nextNodeIndex++;
 				node.m_Right = nextNodeIndex++;
 				node.m_IsLeaf = false;
 
-				// Push right child, then left child (to process left child first)
-				stack[stackTop++] = { mid, current.end, node.m_Right };
-				stack[stackTop++] = { current.start, mid, node.m_Left };
+				// push children
+				stack[stackTop++] = { mid, end,   node.m_Right };
+				stack[stackTop++] = { start, mid, node.m_Left };
 			}
 
-			// Compute AABBs for all nodes bottom-up
-			for (int i = maxNodes - 1; i >= 0; --i) {
-				BVHNode& node = nodes[i];
-				if (node.m_IsLeaf) {
-					node.m_BoundingBox = computeTrianglesAABB(node.m_ObjectIndex, node.m_ObjectCount);
-				}
-				else {
-					node.m_BoundingBox = nodes[node.m_Left].m_BoundingBox;
-					node.m_BoundingBox.expand(nodes[node.m_Right].m_BoundingBox);
+			// finalize bounding boxes bottom-up
+			for (int i = nextNodeIndex - 1; i >= 0; i--) {
+				BVHNode& nd = m_MeshBVH[i];
+				if (!nd.m_IsLeaf) {
+					AABB boxL = m_MeshBVH[nd.m_Left].m_BoundingBox;
+					AABB boxR = m_MeshBVH[nd.m_Right].m_BoundingBox;
+					nd.m_BoundingBox = AABB::combine(boxL, boxR);
 				}
 			}
+		}
+
+		// Evaluate a “surface area heuristic”
+		__device__ float evaluateSAH(const BVHNode& node, int axis, float pos, int start, int end) {
+			AABB leftBox = AABB_EMPTY;
+			AABB rightBox = AABB_EMPTY;
+			int leftCount = 0, rightCount = 0;
+
+			for (int i = start; i < end; i += 3) {
+				CRT::Vec3 c = triangleCentroid(i);
+				if (c[axis] < pos) {
+					leftCount++;
+					expandTriangleAABB(leftBox, i);
+				}
+				else {
+					rightCount++;
+					expandTriangleAABB(rightBox, i);
+				}
+			}
+			float cost = leftCount * leftBox.area() + rightCount * rightBox.area();
+			return cost < 1e-8f ? 1e-8f : cost;
+		}
+
+		__device__ void expandTriangleAABB(AABB& box, int i) {
+			CRT::Vec3 p0 = m_Vertices[m_Indices[i]].Position;
+			CRT::Vec3 p1 = m_Vertices[m_Indices[i + 1]].Position;
+			CRT::Vec3 p2 = m_Vertices[m_Indices[i + 2]].Position;
+			box.expand(p0);
+			box.expand(p1);
+			box.expand(p2);
+		}
+
+		__device__ CRT::Vec3 triangleCentroid(int i) {
+			CRT::Vec3 p0 = m_Vertices[m_Indices[i]].Position;
+			CRT::Vec3 p1 = m_Vertices[m_Indices[i + 1]].Position;
+			CRT::Vec3 p2 = m_Vertices[m_Indices[i + 2]].Position;
+			return (p0 + p1 + p2) * (1.f / 3.f);
 		}
 
 		__device__ AABB computeTrianglesAABB(int start, int count) {
 			AABB box = AABB_EMPTY;
 			for (int i = start; i < start + count; i += 3) {
-				box.expand(m_Vertices[m_Indices[i]].Position);
-				box.expand(m_Vertices[m_Indices[i + 1]].Position);
-				box.expand(m_Vertices[m_Indices[i + 2]].Position);
+				expandTriangleAABB(box, i);
 			}
 			return box;
 		}
-		__device__ int getApproximateLevel(int nodeIndex) const {
-			nodeIndex++; // Adjust for 0-based index
-			int level = 0;
-			while (nodeIndex > 1) {
-				nodeIndex >>= 1; // Equivalent to nodeIndex /= 2
-				level++;
-			}
-			return level;
-		}
 
 		__device__ bool rayTriangleIntersect(
-			const Ray& ray, const Vertex& v0, const Vertex& v1, const Vertex& v2,
-			const Interval& ray_t, HitInfo& rec, int nodeIndex) const
+			const Ray& r,
+			const Vertex& v0,
+			const Vertex& v1,
+			const Vertex& v2,
+			const Interval& ray_t,
+			HitInfo& rec,
+			int triBaseIndex) const
 		{
-			const float EPSILON = 1e-7f;
-			Vec3 edge1 = v1.Position - v0.Position;
-			Vec3 edge2 = v2.Position - v0.Position;
-			Vec3 h = cross(ray.direction(), edge2);
+			// Möller–Trumbore or similar
+			const float EPSILON = 1e-8f;
+			CRT::Vec3 edge1 = v1.Position - v0.Position;
+			CRT::Vec3 edge2 = v2.Position - v0.Position;
+			CRT::Vec3 h = cross(r.direction(), edge2);
 			float a = dot(edge1, h);
+			if (fabs(a) < EPSILON) return false;
 
-			// Check if ray is parallel to the triangle
-			if (fabs(a) < EPSILON)
-				return false;
-
-			float f = 1.0f / a;
-			Vec3 s = ray.origin() - v0.Position;
+			float f = 1.f / a;
+			CRT::Vec3 s = r.origin() - v0.Position;
 			float u = f * dot(s, h);
+			if (u < 0.f || u > 1.f) return false;
 
-			if (u < -EPSILON || u > 1.0f + EPSILON)
-				return false;
-
-			Vec3 q = cross(s, edge1);
-			float v = f * dot(ray.direction(), q);
-
-			if (v < -EPSILON || u + v > 1.0f + EPSILON)
-				return false;
+			CRT::Vec3 q = cross(s, edge1);
+			float v = f * dot(r.direction(), q);
+			if (v < 0.f || (u + v) > 1.f) return false;
 
 			float t = f * dot(edge2, q);
+			if (t < ray_t.min || t > ray_t.max) return false;
 
-			if (t >= ray_t.min && t <= ray_t.max) {
-				rec.IntersectionTime = t;
-				rec.Point = ray.pointAtDistance(t);
-				rec.MaterialIndex = m_MaterialIndex;
+			// We have an intersection
+			rec.IntersectionTime = t;
+			rec.Point = r.pointAtDistance(t);
+			// get face index
+			int faceIdx = triBaseIndex / 3;
+			rec.MaterialIndex = m_FaceMaterialIds[faceIdx];
 
-				 //Interpolate normal
-					//Vec3 normal = (1 - u - v) * v0.Normal + u * v1.Normal + v * v2.Normal;
-					//rec.setFaceNormal(ray, (normal));
-					
-					rec.setFaceNormal(ray, unitVector(cross(edge1, edge2)));
+			// normal
+			CRT::Vec3 normal = cross(edge1, edge2);
+			normal = unitVector(normal);
+			rec.setFaceNormal(r, normal);
 
-				return true;
-			}
-
-			return false;
+			return true;
 		}
 	};
 }

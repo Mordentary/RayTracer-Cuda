@@ -20,7 +20,6 @@ __host__ __device__ void swap(T& val1, T& t2)
 	T temp = val1;
 	val1 = val2;
 	val2 = val1;
-
 }
 
 template<class T>
@@ -87,14 +86,16 @@ namespace CudaAlloc
 			return *this;
 		}
 
-		void copyFromHost(const T* hostData, size_t count) {
+		void copyFromHost(const T* hostData, size_t count, size_t offset = 0) {
 			size_t bytesToCopy = count * sizeof(T);
-			if (bytesToCopy > m_Size) {
+			size_t byteOffset = offset * sizeof(T);
+			if (byteOffset + bytesToCopy > m_Size) {
 				std::cerr << "Error: Attempting to copy " << bytesToCopy
-					<< " bytes, but only " << m_Size << " bytes allocated." << std::endl;
-				throw std::runtime_error("Attempted to copy more data than allocated");
+					<< " bytes at offset " << byteOffset
+					<< ", but only " << m_Size << " bytes allocated." << std::endl;
+				throw std::runtime_error("Attempted to copy more data than allocated or beyond allocated memory");
 			}
-			CUDA_CHECK(cudaMemcpy(m_MemPtr, hostData, bytesToCopy, cudaMemcpyHostToDevice));
+			CUDA_CHECK(cudaMemcpy(m_MemPtr + offset, hostData, bytesToCopy, cudaMemcpyHostToDevice));
 		}
 
 		// Copy data from device to host
@@ -129,7 +130,6 @@ namespace CudaAlloc
 
 			m_MemPtr = newPtr;
 			m_Size = newSizeInBytes;
-
 		}
 
 		// Synchronize if using managed memory
