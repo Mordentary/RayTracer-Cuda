@@ -8,6 +8,7 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <set>
 
 struct MeshData {
 	std::vector<Vertex> vertices;
@@ -118,7 +119,9 @@ void SceneManager::initMeshes(curandState* dRandState) {
 	m_IndexCounts.resize(m_NumMeshes);
 	m_FaceMatOffsets.resize(m_NumMeshes);
 	m_FaceCounts.resize(m_NumMeshes);
+	std::vector<uint32_t> materialIDoffset;
 
+	std::set<int> m_UniqueMaterialsPerMesh;
 	for (int i = 0; i < m_NumMeshes; i++) {
 		MeshData& md = allMeshData[i];
 
@@ -131,13 +134,15 @@ void SceneManager::initMeshes(curandState* dRandState) {
 		m_FaceMatOffsets[i] = baseFaceMat;
 
 		// Insert the mesh’s vertices
-		allVertices.insert(allVertices.end(), md.vertices.begin(), md.vertices.end());
-		allIndices.insert(allIndices.end(), md.indices.begin(), md.indices.end());
+		allVertices.insert(allVertices.cend(), md.vertices.cbegin(), md.vertices.cend());
+		allIndices.insert(allIndices.end(), md.indices.cbegin(), md.indices.cend());
+		allFaceMatIds.insert(allFaceMatIds.cend(),
+			md.faceMaterialIds.cbegin(),
+			md.faceMaterialIds.cend());
 
-		allFaceMatIds.insert(allFaceMatIds.end(),
-			md.faceMaterialIds.begin(),
-			md.faceMaterialIds.end());
-
+		m_UniqueMaterialsPerMesh.clear();
+		m_UniqueMaterialsPerMesh.insert(md.faceMaterialIds.cbegin(), md.faceMaterialIds.cend());
+		materialIDoffset.push_back(m_UniqueMaterialsPerMesh.size());
 		m_VertexCounts[i] = (uint32_t)md.vertices.size();
 		m_IndexCounts[i] = (uint32_t)md.indices.size();
 		m_FaceCounts[i] = (uint32_t)md.faceMaterialIds.size();
@@ -168,9 +173,8 @@ void SceneManager::initMeshes(curandState* dRandState) {
 		uint32_t vOffset = m_VertexOffsets[i];
 		uint32_t iOffset = m_IndexOffsets[i];
 
-		// faceCount = iCount/3 if each face is exactly 3 indices
-		// but we also stored the faceMaterialIds
 		uint32_t faceMatOffset = m_FaceMatOffsets[i];
+		uint32_t materialIDOffset = i == 0 ? 0 : materialIDoffset[i - 1];
 
 		// Kernel call
 		CUDAKernels::initMesh CUDA_KERNEL(1, 1) (
@@ -183,6 +187,7 @@ void SceneManager::initMeshes(curandState* dRandState) {
 			vOffset,
 			iOffset,
 			faceMatOffset,
+			materialIDOffset,
 			dRandState
 			);
 		CUDA_CHECK(cudaGetLastError());

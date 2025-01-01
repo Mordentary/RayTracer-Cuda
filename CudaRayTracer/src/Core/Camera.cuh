@@ -15,7 +15,6 @@ namespace CRT
 	public:
 		__host__ __device__ Camera() = default;
 
-
 		__host__ __device__ Camera(float aspectRatio, float fov, Vec3 position, Vec3 target, Vec3 up, float aperture, float focusDist)
 			: m_AspectRatio(aspectRatio), m_VerticalFOV(fov), m_Position(position), m_Aperture(aperture), m_FocusDist(focusDist)
 		{
@@ -24,8 +23,8 @@ namespace CRT
 			m_PixelSampleScale = 1.0f / m_SamplesPerPixel;
 			m_Yaw = -90.0f;
 			m_Pitch = 0.0f;
-			m_MovementSpeed = 2.5f;
-			m_MouseSensitivity = 0.3f;
+			m_MovementSpeed = 1.0f;
+			m_MouseSensitivity = 0.2f;
 			m_HighQualityMode = m_CameraMoves = m_CameraRotates = false;
 			updateCameraVectors();
 		}
@@ -62,7 +61,7 @@ namespace CRT
 			}
 			else if (m_HighQualityMode)
 			{
-				m_SamplesPerPixel = 500;
+				m_SamplesPerPixel = 2000;
 			}
 			else
 			{

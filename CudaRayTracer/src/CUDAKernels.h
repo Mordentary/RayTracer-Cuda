@@ -70,7 +70,7 @@ namespace CUDAKernels {
 			world->add(new CRT::Sphere(CRT::Vec3(0, -1000, 0), 999, ground_material_index));
 
 			int material3 = world->addMaterial(new CRT::Metal(CRT::Color(0.7, 0.6, 0.5), 0.0f));
-			world->add(new CRT::Sphere(CRT::Vec3(0.3, 1, 0), 0.2f, material3));
+			world->add(new CRT::Sphere(CRT::Vec3(0.2, 0.2, 0), 0.05f, material3));
 
 			//for (int i = 0; i < world->s_MAX_MATERIALS; i++) {
 			//	CRT::Color albedo = CRT::Utility::randomVector(0.2f, 1.0f, rand_state);
@@ -91,11 +91,11 @@ namespace CUDAKernels {
 
 	__global__ void initMesh(CRT::Mesh* mesh, Vertex* globalVertices, uint32_t* globalIndices, int* globalFaceMatIndices,
 		uint32_t vertexCount, uint32_t indexCount,
-		uint32_t vertexOffset, uint32_t indexOffset, uint32_t faceMatOffset, curandState* d_rand_state)
+		uint32_t vertexOffset, uint32_t indexOffset, uint32_t faceMatOffset, uint32_t  materialIDOffset, curandState* d_rand_state)
 	{
 		if (threadIdx.x == 0 && blockIdx.x == 0) {
 			new (mesh) CRT::Mesh(globalVertices, globalIndices, globalFaceMatIndices,
-				vertexCount, indexCount, vertexOffset, indexOffset, faceMatOffset, d_rand_state);
+				vertexCount, indexCount, vertexOffset, indexOffset, faceMatOffset, materialIDOffset, d_rand_state);
 		}
 	}
 
@@ -103,7 +103,7 @@ namespace CUDAKernels {
 		CRT::Ray current_ray = r;
 		CRT::Color accumulated_color(1.0f, 1.0f, 1.0f);
 		CRT::Color final_color(0.0f, 0.0f, 0.0f);
-		const int MAX_BOUNCES = 10;
+		const int MAX_BOUNCES = 20;
 		const int MIN_BOUNCES = 3;
 		const float MAX_PROB = 0.95f;
 

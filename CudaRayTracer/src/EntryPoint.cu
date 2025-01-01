@@ -14,10 +14,10 @@
 int main() {
 	try {
 		constexpr float ASPECT_RATIO = 16.0f / 9.0f;
-		constexpr int WIDTH = 1440;
+		constexpr int WIDTH = 2560;
 		constexpr int HEIGHT = static_cast<int>(WIDTH / ASPECT_RATIO);
-		constexpr float VERTICAL_FOV = 70.0f;
-		constexpr float APERTURE = 0.0001f;
+		constexpr float VERTICAL_FOV = 80.0f;
+		constexpr float APERTURE = 0.000001f;
 
 		//Increase memory limits
 		//size_t heapSize = 20000000 * sizeof(double) * 4;

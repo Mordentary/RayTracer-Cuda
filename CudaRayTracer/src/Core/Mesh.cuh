@@ -23,6 +23,7 @@ namespace CRT
 			uint32_t  vertexOffset,
 			uint32_t  indexOffset,
 			uint32_t  faceMatOffset,
+			uint32_t  materialIDOffset,
 			curandState* d_rand_state)
 			: m_Vertices(globalVertices + vertexOffset),
 			m_Indices(globalIndices + indexOffset),
@@ -32,6 +33,7 @@ namespace CRT
 			m_VertexOffset(vertexOffset),
 			m_IndexOffset(indexOffset),
 			m_FaceMatOffset(faceMatOffset),
+			m_MatIDOffset(materialIDOffset),
 			m_RandState(d_rand_state)
 		{
 			if (m_VertexCount > 0)
@@ -112,7 +114,7 @@ namespace CRT
 		uint32_t* m_Indices;
 		int* m_FaceMaterialIds;
 		uint32_t m_VertexCount, m_IndexCount;
-		uint32_t m_VertexOffset, m_IndexOffset, m_FaceMatOffset;
+		uint32_t m_VertexOffset, m_IndexOffset, m_FaceMatOffset, m_MatIDOffset;
 		curandState* m_RandState;
 		BVHNode* m_MeshBVH;
 	private:
@@ -143,7 +145,7 @@ namespace CRT
 
 				BVHNode& node = m_MeshBVH[nodeIdx];
 				int span = end - start;
-				if (span <= 24 || (nextNodeIndex + 1) >= maxNodes) {
+				if (span <= 30 || (nextNodeIndex + 1) >= maxNodes) {
 					// Leaf (3 triangles or fewer)
 					node.m_IsLeaf = true;
 					node.m_ObjectIndex = start;
@@ -295,7 +297,7 @@ namespace CRT
 			rec.Point = r.pointAtDistance(t);
 			// get face index
 			int faceIdx = triBaseIndex / 3;
-			rec.MaterialIndex = m_FaceMaterialIds[faceIdx];
+			rec.MaterialIndex = m_FaceMaterialIds[faceIdx] + m_MatIDOffset;
 
 			// normal
 			CRT::Vec3 normal = cross(edge1, edge2);
